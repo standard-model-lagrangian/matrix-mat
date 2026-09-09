@@ -51,62 +51,57 @@ For in-depth explanations tailored to specific roles, consult our documentation 
 
 ## Quickstart Guide
 
-### 1. Environment Activation
+#### 1. Environment Activation
 ```bash
-# Clone or navigate to the repository
-cd "/Users/frederick/Visual Studio /Material discovery"
+# Navigate to the repository root
+cd matrix-mat
 
-# Activate the pre-configured virtual environment
+# Activate the virtual environment
 source .venv/bin/activate
 ```
 
 ### 2. Brightfield Spheroid Volume Analysis Pipeline
 
 ```bash
-# Step 1: Preflight Data & Optical Scale Audit (Instant sanity check)
+# Step 1: Run preflight integrity audit
 python run_pipeline.py --preflight-only
 
-# Step 2: Synthetic Ground-Truth Smoke Test (Asserts <10% recovery error)
+# Step 2: Run mathematical ground-truth smoke test
 python run_pipeline.py --smoke-test
 
-# Step 3: Fast 12-Sample Stratified Test with Automated Sanity Gates
-python run_pipeline.py --sample 12 --output-dir output_sample12
-
-# Step 4: Full Dataset Batch Execution (All 285 raw brightfield images)
-python run_pipeline.py --config configs/spheroid_brightfield.yaml --output-dir output
-
-# Step 5: Regenerate Presentation Figures (Figs 1-6) On Demand
-python run_pipeline.py --plots --output-dir output
+# Step 3: Run analysis and generate all 6 publication presentation figures
+python run_pipeline.py --plots
 ```
 
 ### 3. Immunofluorescence (IF) Nuclei Density Pipeline
 
 ```bash
-# Step 1: Run Production IF Segmentation Stack (Winning PP11 Stack)
-python -m spheroid_if_sweep sweep --config configs/robustness_check.yaml
+# Step 1: Run preflight audit for channel pairing and GPU acceleration
+python -m spheroid_if_sweep preflight --data-dir "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
 
-# Step 2: Generate Cross-Material Biological Comparison Figures
-python -m spheroid_if_sweep compare-biological --run-dir runs/104_PP11_full
+# Step 2: Run winning production configuration (Cellpose-SAM + Pre/Post Processing)
+python -m spheroid_if_sweep run --config configs/sweep.yaml
 
 # Step 3: Run Pre/Post Processing Ablation Comparison & Verdict
-python compare_prepost.py --runs runs/ --biological
+python -m spheroid_if_sweep compare-prepost --runs runs/ --biological
 ```
 
 ---
 
 ## CLI Command Quick Reference
 
-### Brightfield Spheroid CLI (`run_pipeline.py`)
+### Brightfield Spheroid CLI (`run_pipeline.py` or `python -m spheroid_pipeline_v2`)
 
 | Flag / Option | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
-| `--config` | `<path>` | Path to YAML configuration file | `config.yaml` / `configs/spheroid_brightfield.yaml` |
+| `--config` | `<path>` | Path to YAML configuration file | `configs/spheroid_brightfield.yaml` |
 | `--preflight-only`| *None* | Run proactive input and optical scale audit and exit | `False` |
 | `--smoke-test` | *None* | Run synthetic ground-truth mathematical smoke test | `False` |
 | `--sample` | `<N>` | Run stratified $N$-sample test with programmatic sanity gates | `None` (Full) |
+| `--condition` | `<name>` | Filter dataset to specific hydrogel condition (e.g. `S34D30`, `Mat`) | `None` (All) |
 | `--full-dataset` | *None* | Process all images in Day 0 and Day 7 directories | `False` |
 | `--plots` | *None* | Re-generate all 6 presentation figures from existing CSVs | `False` |
-| `--output-dir` | `<path>` | Directory to write CSVs, figures, overlays, and reports | `output` |
+| `-o`, `--out`, `--output-dir` | `<path>` | Directory to write CSVs, figures, overlays, and reports | `output` |
 | `--pixel-size` | `<val>` | Override optical scale in $\mu\mathrm{m/pixel}$ | Auto (EVOS Tag 37510) |
 | `--no-cache` | *None* | Force recomputation without loading cached masks | `False` |
 

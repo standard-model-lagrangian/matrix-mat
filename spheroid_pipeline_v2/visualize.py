@@ -285,9 +285,12 @@ def plot_fold_change_violin(
         valid_pairs = valid_pairs[valid_pairs["denominator_gate_pass"] == True]
 
     preferred_order = ["Mat", "S34D30", "S40D30", "S43D20", "S46D10", "S50"]
-    present_conditions = [c for c in preferred_order if c in valid_pairs["condition"].unique()]
-    other_conditions = [c for c in sorted(valid_pairs["condition"].unique()) if c not in present_conditions]
-    conditions = present_conditions + other_conditions
+    if "condition" in valid_pairs.columns and not valid_pairs.empty:
+        present_conditions = [c for c in preferred_order if c in valid_pairs["condition"].unique()]
+        other_conditions = [c for c in sorted(valid_pairs["condition"].unique()) if c not in present_conditions]
+        conditions = present_conditions + other_conditions
+    else:
+        conditions = []
 
     if not conditions or valid_pairs.empty:
         ax.text(0.5, 0.5, "No PASS-verified matched pairs data available\n(See Population-Level Distribution Analysis for full cohort)", ha="center", va="center", transform=ax.transAxes, fontsize=11)
@@ -508,17 +511,20 @@ def plot_v0_vs_v7_scatter(
     if pass_only and "combined_qc_flag" in sub_df.columns:
         sub_df = sub_df[sub_df["combined_qc_flag"] == "PASS"]
 
-    sub_df = sub_df[
-        (sub_df["t0_volume_sphere_um3"] > 0)
-        & (sub_df["t7_volume_sphere_um3"] > 0)
-        & np.isfinite(sub_df["t0_volume_sphere_um3"])
-        & np.isfinite(sub_df["t7_volume_sphere_um3"])
-    ]
-
-    if sub_df.empty:
+    req_cols = {"t0_volume_sphere_um3", "t7_volume_sphere_um3", "condition"}
+    if sub_df.empty or not req_cols.issubset(sub_df.columns):
         ax.text(0.5, 0.5, "No PASS pairs data available", ha="center", va="center", transform=ax.transAxes)
     else:
-        conditions = sorted(sub_df["condition"].unique())
+        sub_df = sub_df[
+            (sub_df["t0_volume_sphere_um3"] > 0)
+            & (sub_df["t7_volume_sphere_um3"] > 0)
+            & np.isfinite(sub_df["t0_volume_sphere_um3"])
+            & np.isfinite(sub_df["t7_volume_sphere_um3"])
+        ]
+        if sub_df.empty:
+            ax.text(0.5, 0.5, "No PASS pairs data available", ha="center", va="center", transform=ax.transAxes)
+        else:
+            conditions = sorted(sub_df["condition"].unique())
         for cond in conditions:
             c_df = sub_df[sub_df["condition"] == cond]
             color = CONDITION_COLORS.get(cond, "#3498db")
@@ -580,14 +586,18 @@ def plot_growth_slopegraph(
     if pass_only and "combined_qc_flag" in sub_df.columns:
         sub_df = sub_df[sub_df["combined_qc_flag"] == "PASS"]
 
-    conditions = sorted(sub_df["condition"].unique()) if not sub_df.empty else []
+    req_cols = {"t0_volume_sphere_um3", "t7_volume_sphere_um3", "condition"}
+    if sub_df.empty or not req_cols.issubset(sub_df.columns):
+        conditions = []
+    else:
+        conditions = sorted(sub_df["condition"].unique())
     n_conds = max(1, len(conditions))
 
     fig, axes = plt.subplots(1, n_conds, figsize=(3.2 * n_conds, 5.5), dpi=300, sharey=True)
     if n_conds == 1:
         axes = [axes]
 
-    if sub_df.empty:
+    if not conditions or sub_df.empty:
         axes[0].text(0.5, 0.5, "No PASS pairs data", ha="center", va="center")
     else:
         for idx, cond in enumerate(conditions):

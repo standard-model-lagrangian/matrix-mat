@@ -90,6 +90,8 @@ class ClassicalMultiScaleSegmenter(BaseSegmenter):
         thresh_diff = self.config.classical_threshold_diff
 
         for w_size in window_sizes:
+            if w_size >= min(h, w):
+                continue
             k = int(w_size) if int(w_size) % 2 == 1 else int(w_size) + 1
             blur = cv2.blur(smooth, (k, k))
             diff = cv2.subtract(blur, smooth)
@@ -240,13 +242,14 @@ class CellposeSAMSegmenter(BaseSegmenter):
             else:
                 img_u8 = image
 
+            d_val = float(self.config.cpsam_expected_diameter_px)
             masks, flows, styles = model.eval(
                 img_u8,
-                diameter=160.0,
+                diameter=d_val,
                 channels=[0, 0],
-                flow_threshold=0.4,
-                cellprob_threshold=0.0,
-                min_size=30,
+                flow_threshold=float(self.config.cpsam_flow_threshold),
+                cellprob_threshold=float(self.config.cpsam_cellprob_threshold),
+                min_size=int(self.config.cpsam_min_size_px),
             )
             labels = np.asarray(masks, dtype=np.int32)
             n_objs = int(np.max(labels))
@@ -254,6 +257,7 @@ class CellposeSAMSegmenter(BaseSegmenter):
                 "backend": "cpsam",
                 "device": self.device_str,
                 "objects_found": n_objs,
+                "diameter_used": d_val,
                 "status": "success" if n_objs > 0 else "empty",
             }
         except Exception as e:
@@ -267,9 +271,10 @@ class CellposeSAMSegmenter(BaseSegmenter):
             }
 
 
-class CellposeCyto3Segmenter(BaseSegmenter):
+class CellposeFoundationSegmenter(BaseSegmenter):
     """
-    Secondary deep learning fallback backend using Cellpose vision transformer ('cpdino' / 'cpsam').
+    Secondary deep learning fallback backend using Cellpose foundation vision transformer ('cpdino' / 'cpsam').
+    Performs multi-diameter scale sweep ([150, 200, 250, 300] px) if base scale yields 0 objects.
     """
 
     def __init__(self, config: Optional[SegmentationConfig] = None):
@@ -295,20 +300,45 @@ class CellposeCyto3Segmenter(BaseSegmenter):
             else:
                 img_u8 = image
 
+            # Initial evaluation with target expected diameter
+            d_val = float(self.config.cpsam_expected_diameter_px)
             masks, flows, styles = model.eval(
                 img_u8,
-                diameter=160.0,
+                diameter=d_val,
                 channels=[0, 0],
-                flow_threshold=0.4,
-                cellprob_threshold=0.0,
-                min_size=30,
+                flow_threshold=float(self.config.cpsam_flow_threshold),
+                cellprob_threshold=float(self.config.cpsam_cellprob_threshold),
+                min_size=int(self.config.cpsam_min_size_px),
             )
             labels = np.asarray(masks, dtype=np.int32)
             n_objs = int(np.max(labels))
+
+            # Multi-diameter sweep fallback if initial scale finds 0 objects
+            sweep_diameters = self.config.cellpose_diameter_sweep or [150, 200, 250, 300]
+            if n_objs == 0 and sweep_diameters:
+                for sweep_d in sweep_diameters:
+                    if abs(sweep_d - d_val) < 5.0:
+                        continue
+                    m_sw, _, _ = model.eval(
+                        img_u8,
+                        diameter=float(sweep_d),
+                        channels=[0, 0],
+                        flow_threshold=float(self.config.cpsam_flow_threshold),
+                        cellprob_threshold=float(self.config.cpsam_cellprob_threshold),
+                        min_size=int(self.config.cpsam_min_size_px),
+                    )
+                    n_sw = int(np.max(m_sw))
+                    if n_sw > 0:
+                        labels = np.asarray(m_sw, dtype=np.int32)
+                        n_objs = n_sw
+                        d_val = float(sweep_d)
+                        break
+
             return labels, {
                 "backend": "cpdino",
                 "device": self.device_str,
                 "objects_found": n_objs,
+                "diameter_used": d_val,
                 "status": "success" if n_objs > 0 else "empty",
             }
         except Exception as e:
@@ -320,6 +350,10 @@ class CellposeCyto3Segmenter(BaseSegmenter):
                 "status": "failed",
                 "objects_found": 0,
             }
+
+
+# Backwards compatibility alias
+CellposeCyto3Segmenter = CellposeFoundationSegmenter
 
 
 class SegmentationHierarchy:
@@ -404,8 +438,33 @@ class SegmentationHierarchy:
         selected_mask: Optional[np.ndarray] = None
         selected_meta: Dict[str, Any] = {}
 
-        # 3. Tier 1 Execution (Primary: Cellpose-SAM or configured primary)
-        if active_backend == "cpsam":
+        # 3. Tier 1 Execution (Primary: Cellpose-SAM, cpdino, or classical)
+        if active_backend == "classical":
+            mask_t1, meta_t1 = self.classical_segmenter.segment(downsampled_img, pixel_size_um)
+            selected_mask = mask_t1
+            selected_meta = meta_t1
+        elif active_backend == "cpdino":
+            try:
+                mask_t2, meta_t2 = self.cyto3_segmenter.segment(downsampled_img, pixel_size_um)
+                is_valid, reason = self._check_plausibility(mask_t2)
+                if is_valid:
+                    selected_mask = mask_t2
+                    selected_meta = meta_t2
+                else:
+                    self.decisions_logger.log_fallback(
+                        image_id=image_id,
+                        from_backend="cpdino",
+                        to_backend=self.config.last_resort_backend,
+                        reason=f"Cellpose cpdino plausibility check failed: {reason}",
+                    )
+            except Exception as e:
+                self.decisions_logger.log_fallback(
+                    image_id=image_id,
+                    from_backend="cpdino",
+                    to_backend=self.config.last_resort_backend,
+                    reason=f"Cellpose cpdino exception: {e}",
+                )
+        else:
             try:
                 mask_t1, meta_t1 = self.cpsam_segmenter.segment(downsampled_img, pixel_size_um)
                 is_valid, reason = self._check_plausibility(mask_t1)
@@ -430,32 +489,37 @@ class SegmentationHierarchy:
                     reason=f"Cellpose-SAM exception: {e}",
                 )
 
-        # 4. Tier 2 Execution (Fallback: Cellpose cpdino)
-        if selected_mask is None:
-            try:
-                mask_t2, meta_t2 = self.cyto3_segmenter.segment(downsampled_img, pixel_size_um)
-                is_valid, reason = self._check_plausibility(mask_t2)
-                if is_valid:
-                    selected_mask = mask_t2
-                    selected_meta = meta_t2
-                elif meta_t2.get("status") == "empty":
-                    # Both deep learning models found 0 objects -> legitimately empty field of view
-                    selected_mask = mask_t2
-                    selected_meta = {"backend": "cpsam_verified_empty", "objects_found": 0, "status": "empty"}
-                else:
+            # 4. Tier 2 Execution (Fallback: Cellpose cpdino)
+            if selected_mask is None:
+                try:
+                    mask_t2, meta_t2 = self.cyto3_segmenter.segment(downsampled_img, pixel_size_um)
+                    is_valid, reason = self._check_plausibility(mask_t2)
+                    if is_valid:
+                        selected_mask = mask_t2
+                        selected_meta = meta_t2
+                    elif meta_t2.get("status") == "empty":
+                        # Both deep learning models found 0 objects; fall through to Classical Tier 3
+                        logger.debug(f"{image_id}: Both DL backends returned 0 objects; falling through to classical Tier 3")
+                        self.decisions_logger.log_fallback(
+                            image_id=image_id,
+                            from_backend="cpdino",
+                            to_backend=self.config.last_resort_backend,
+                            reason="Both DL backends returned 0 objects; attempting classical adaptive watershed",
+                        )
+                    else:
+                        self.decisions_logger.log_fallback(
+                            image_id=image_id,
+                            from_backend="cpdino",
+                            to_backend=self.config.last_resort_backend,
+                            reason=f"Cellpose cpdino plausibility check failed: {reason}",
+                        )
+                except Exception as e:
                     self.decisions_logger.log_fallback(
                         image_id=image_id,
                         from_backend="cpdino",
                         to_backend=self.config.last_resort_backend,
-                        reason=f"Cellpose cpdino plausibility check failed: {reason}",
+                        reason=f"Cellpose cpdino exception: {e}",
                     )
-            except Exception as e:
-                self.decisions_logger.log_fallback(
-                    image_id=image_id,
-                    from_backend="cpdino",
-                    to_backend=self.config.last_resort_backend,
-                    reason=f"Cellpose cpdino exception: {e}",
-                )
 
         # 5. Tier 3 Execution (Last Resort: Classical Adaptive Watershed)
         if selected_mask is None:

@@ -62,20 +62,37 @@ def audit_fail_class(
     ax_diam, ax_cont = axes[0, 0], axes[0, 1]
     ax_sol, ax_yield = axes[1, 0], axes[1, 1]
 
+    if objects_df.empty or "qc_flag" not in objects_df.columns:
+        for ax in axes.flat:
+            ax.text(0.5, 0.5, "No objects data available", ha="center", va="center", transform=ax.transAxes)
+        plt.tight_layout()
+        png_path = fig_dir / "fail_class_audit.png"
+        fig.savefig(png_path, dpi=300, bbox_inches="tight")
+        results["png"] = png_path
+        if save_pdf:
+            pdf_path = fig_dir / "fail_class_audit.pdf"
+            fig.savefig(pdf_path, bbox_inches="tight")
+            results["pdf"] = pdf_path
+        plt.close(fig)
+        return results
+
     # Panel A: Diameter Distribution (log scale x-axis)
     bins_d = np.geomspace(20, 1500, 40)
     for qf in ["FAIL", "REVIEW", "PASS"]:
         sub = objects_df[objects_df["qc_flag"] == qf]
-        d_vals = sub["equivalent_diameter_um"].dropna().values
-        ax_diam.hist(
-            d_vals,
-            bins=bins_d,
-            alpha=0.6,
-            label=f"{qf} (n={len(d_vals):,})",
-            color=QC_COLORS.get(qf, "#7f8c8d"),
-            edgecolor="white",
-            density=True,
-        )
+        d_vals = sub["equivalent_diameter_um"].dropna().values if "equivalent_diameter_um" in sub.columns else np.array([])
+        if len(d_vals) > 0:
+            ax_diam.hist(
+                d_vals,
+                bins=bins_d,
+                alpha=0.6,
+                label=f"{qf} (n={len(d_vals):,})",
+                color=QC_COLORS.get(qf, "#7f8c8d"),
+                edgecolor="white",
+                density=True,
+            )
+        else:
+            ax_diam.plot([], [], label=f"{qf} (n=0)", color=QC_COLORS.get(qf, "#7f8c8d"))
     ax_diam.axvline(40, color="#c0392b", linestyle="--", linewidth=1.5, label="Min Size Gate (40 um)")
     ax_diam.set_xscale("log")
     ax_diam.set_xlabel("Equivalent Diameter ($d$, $\\mu$m) [Log Scale]", fontsize=11, fontweight="bold")
@@ -88,16 +105,19 @@ def audit_fail_class(
     bins_c = np.linspace(-0.05, 0.40, 45)
     for qf in ["FAIL", "REVIEW", "PASS"]:
         sub = objects_df[objects_df["qc_flag"] == qf]
-        c_vals = sub["contrast_ratio"].dropna().values
-        ax_cont.hist(
-            c_vals,
-            bins=bins_c,
-            alpha=0.6,
-            label=f"{qf} (n={len(c_vals):,})",
-            color=QC_COLORS.get(qf, "#7f8c8d"),
-            edgecolor="white",
-            density=True,
-        )
+        c_vals = sub["contrast_ratio"].dropna().values if "contrast_ratio" in sub.columns else np.array([])
+        if len(c_vals) > 0:
+            ax_cont.hist(
+                c_vals,
+                bins=bins_c,
+                alpha=0.6,
+                label=f"{qf} (n={len(c_vals):,})",
+                color=QC_COLORS.get(qf, "#7f8c8d"),
+                edgecolor="white",
+                density=True,
+            )
+        else:
+            ax_cont.plot([], [], label=f"{qf} (n=0)", color=QC_COLORS.get(qf, "#7f8c8d"))
     ax_cont.axvline(0.10, color="#c0392b", linestyle="--", linewidth=1.5, label="Min Contrast Gate (10%)")
     ax_cont.set_xlabel("Dark Contrast Ratio ($\\Delta I / I_{\\mathrm{ring}}$)", fontsize=11, fontweight="bold")
     ax_cont.set_ylabel("Probability Density", fontsize=11, fontweight="bold")
@@ -109,16 +129,19 @@ def audit_fail_class(
     bins_s = np.linspace(0.2, 1.0, 40)
     for qf in ["FAIL", "REVIEW", "PASS"]:
         sub = objects_df[objects_df["qc_flag"] == qf]
-        s_vals = sub["solidity"].dropna().values
-        ax_sol.hist(
-            s_vals,
-            bins=bins_s,
-            alpha=0.6,
-            label=f"{qf} (n={len(s_vals):,})",
-            color=QC_COLORS.get(qf, "#7f8c8d"),
-            edgecolor="white",
-            density=True,
-        )
+        s_vals = sub["solidity"].dropna().values if "solidity" in sub.columns else np.array([])
+        if len(s_vals) > 0:
+            ax_sol.hist(
+                s_vals,
+                bins=bins_s,
+                alpha=0.6,
+                label=f"{qf} (n={len(s_vals):,})",
+                color=QC_COLORS.get(qf, "#7f8c8d"),
+                edgecolor="white",
+                density=True,
+            )
+        else:
+            ax_sol.plot([], [], label=f"{qf} (n=0)", color=QC_COLORS.get(qf, "#7f8c8d"))
     ax_sol.axvline(0.85, color="#c0392b", linestyle="--", linewidth=1.5, label="Min Solidity Gate (0.85)")
     ax_sol.set_xlabel("Morphological Solidity ($A / A_{\\mathrm{convex}}$)", fontsize=11, fontweight="bold")
     ax_sol.set_ylabel("Probability Density", fontsize=11, fontweight="bold")
@@ -188,6 +211,9 @@ def create_fail_audit_crops_grid(
     out_path = Path(output_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    if objects_df.empty or "qc_flag" not in objects_df.columns:
+        return None
+
     fails = objects_df[objects_df["qc_flag"] == "FAIL"].copy()
     if fails.empty:
         return None
@@ -200,9 +226,13 @@ def create_fail_audit_crops_grid(
 
     for _, row in sample_df.iterrows():
         img_dir = Path(t0_dir) if row["timepoint"] == "t0" else Path(t7_dir)
-        raw_path = img_dir / row["image_id"]
+        raw_path = img_dir / f"{row['image_id']}.tif"
         if not raw_path.exists():
-            continue
+            raw_path = img_dir / f"{row['image_id']}.tiff"
+            if not raw_path.exists():
+                raw_path = img_dir / str(row["image_id"])
+                if not raw_path.exists():
+                    continue
 
         raw = cv2.imread(str(raw_path), cv2.IMREAD_GRAYSCALE)
         if raw is None:

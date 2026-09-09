@@ -398,6 +398,14 @@ def run_spheroid_pipeline(
     if manifest_df.empty:
         logger.error("No images found to process.")
         return {"status": "FAILED", "error": "Empty dataset"}
+
+    if config.condition:
+        manifest_df = manifest_df[manifest_df["condition"] == config.condition].copy()
+        if manifest_df.empty:
+            logger.error(f"No images found matching condition '{config.condition}'.")
+            return {"status": "FAILED", "error": f"Condition '{config.condition}' not found"}
+        logger.info(f"Filtered dataset to condition '{config.condition}': {len(manifest_df)} images found.")
+
     export_complete_manifest(manifest_df, out_dir, compute_checksums=False)
 
     # Select stratified sample if requested
@@ -697,11 +705,27 @@ def build_cli_parser() -> argparse.ArgumentParser:
         help="Run full dataset batch execution over all 285 raw TIFFs.",
     )
 
-    parser.add_argument("--config", type=str, default="config.yaml", help="Path to YAML configuration file.")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/spheroid_brightfield.yaml",
+        help="Path to YAML configuration file (default: configs/spheroid_brightfield.yaml).",
+    )
     parser.add_argument("--input-dir", type=str, help="Unified input directory.")
     parser.add_argument("--t0-dir", type=str, help="Day 0 input image directory.")
     parser.add_argument("--t7-dir", type=str, help="Day 7 input image directory.")
-    parser.add_argument("--output-dir", type=str, default="output", help="Output directory for CSVs and artifacts.")
+    parser.add_argument(
+        "-o", "--out", "--output-dir",
+        dest="output_dir",
+        type=str,
+        default="output",
+        help="Output directory for CSVs and artifacts (default: output).",
+    )
+    parser.add_argument(
+        "--condition",
+        type=str,
+        help="Filter dataset to specific hydrogel condition (e.g. S34D30, Mat).",
+    )
     parser.add_argument("--review-dir", type=str, default="review", help="Directory monitoring manual ground-truth masks.")
     parser.add_argument("--pixel-size", type=float, help="Optical calibration override in um/pixel.")
     parser.add_argument("--no-cache", action="store_true", help="Force recomputation without loading cached masks.")
@@ -737,6 +761,8 @@ def main(args: Optional[Sequence[str]] = None) -> int:
         cli_overrides["t7_dir"] = cli_args.t7_dir
     if cli_args.pixel_size:
         cli_overrides["cli_pixel_size_um"] = cli_args.pixel_size
+    if cli_args.condition:
+        cli_overrides["condition"] = cli_args.condition
     if cli_args.no_cache:
         cli_overrides.setdefault("segmentation", {})["force_recompute"] = True
 

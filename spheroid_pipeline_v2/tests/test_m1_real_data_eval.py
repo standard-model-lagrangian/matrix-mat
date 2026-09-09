@@ -46,7 +46,7 @@ class TestM1RealDatasetEvaluation(unittest.TestCase):
         cls.conditions = ["Mat", "S34D30", "S40D30", "S43D20", "S46D10", "S50"]
 
         if not cls.d0_dir.exists() or not cls.d7_dir.exists():
-            raise FileNotFoundError(f"Dataset directories missing: {cls.d0_dir} or {cls.d7_dir}")
+            raise unittest.SkipTest(f"Raw experimental TIFF dataset not present on this machine: {cls.d0_dir} or {cls.d7_dir}")
 
         # Collect stratified sample of real images: 2 per condition per day = 24 images total
         cls.sample_images = []

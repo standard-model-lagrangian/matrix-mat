@@ -15,5 +15,6 @@ imagecodecs>=2023.1.23
 
 # Deep Learning / Segmentation (Immunofluorescence Cellpose-SAM Pipeline)
 torch>=2.1.0
-cellpose>=3.0.0
+cellpose>=4.0.0
+
 

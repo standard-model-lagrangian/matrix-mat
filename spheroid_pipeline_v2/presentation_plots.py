@@ -224,16 +224,17 @@ def generate_all_presentation_figures(
     for i, c in enumerate(cond_order):
         sub = wells_df[wells_df["condition"] == c]
         fcs = sub["fc_pooled_vol_density"].replace([np.inf, -np.inf], np.nan).dropna().values
-        jitter = np.random.normal(0, 0.07, size=len(fcs))
-        ax1.scatter(positions[i] + jitter, fcs, color="#2c3e50", alpha=0.75, s=45, zorder=4, edgecolor="white", linewidth=0.5)
-        ax1.scatter(positions[i], np.mean(fcs), marker="D", color="#f1c40f", s=65, zorder=5, edgecolor="#2c3e50")
+        if len(fcs) > 0:
+            jitter = np.random.normal(0, 0.07, size=len(fcs))
+            ax1.scatter(positions[i] + jitter, fcs, color="#2c3e50", alpha=0.75, s=45, zorder=4, edgecolor="white", linewidth=0.5)
+            ax1.scatter(positions[i], np.mean(fcs), marker="D", color="#f1c40f", s=65, zorder=5, edgecolor="#2c3e50")
 
-        if len(fcs) >= 5:
-            res_wilc = stats.wilcoxon(fcs - 1.0, alternative="greater")
-            sig_a = "**" if res_wilc.pvalue < 0.01 else ("*" if res_wilc.pvalue < 0.05 else "ns")
-        else:
-            sig_a = "ns"
-        ax1.text(positions[i], max(fcs) * 1.15, sig_a, ha="center", va="bottom", fontsize=10, fontweight="bold", color="#2c3e50")
+            if len(fcs) >= 5:
+                res_wilc = stats.wilcoxon(fcs - 1.0, alternative="greater")
+                sig_a = "**" if res_wilc.pvalue < 0.01 else ("*" if res_wilc.pvalue < 0.05 else "ns")
+            else:
+                sig_a = "ns"
+            ax1.text(positions[i], max(fcs) * 1.15, sig_a, ha="center", va="bottom", fontsize=10, fontweight="bold", color="#2c3e50")
 
     ax1.axhline(1.0, color="#c0392b", linestyle="--", linewidth=1.5, alpha=0.8, label="No Growth (FC=1.0)")
     ax1.set_yscale("log")
@@ -488,7 +489,13 @@ def generate_all_presentation_figures(
         mean_ratio = mean_v7 / max(1e-6, mean_v0)
         ax.plot([0, 1], [mean_v0, mean_v7], color="#1c2833", lw=3.5, linestyle="--", label=f"Mean: {mean_v0:.1f} -> {mean_v7:.1f} M ({mean_ratio:.2f}x)", zorder=6)
         ax.set_yscale("log")
-        ax.set_ylim(0.15, 260)
+        all_raw_vals = [v for v in (v0_raw + v7_raw) if v > 0]
+        if all_raw_vals:
+            min_y = max(1e-4, min(all_raw_vals) * 0.5)
+            max_y = max(all_raw_vals) * 2.5
+            ax.set_ylim(min_y, max_y)
+        else:
+            ax.set_ylim(0.1, 100.0)
         ax.set_xlim(-0.42, 1.55)
         ax.set_xticks([0, 1])
         ax.set_xticklabels(["Day 0 ($t_0$)", "Day 7 ($t_7$)"], fontweight="bold", fontsize=11.5)
@@ -497,7 +504,7 @@ def generate_all_presentation_figures(
         ax.legend(loc="upper left", frameon=True, fontsize=9.5)
 
     for r in range(n_rows):
-        axes6[r, 0].set_ylabel("Raw Spheroid Volume per Well\n($10^6\\,\\mu\\mathrm{m}^3 = 1\\,\\mathrm{nL}$) [Log Scale]", fontsize=11.5, fontweight="bold")
+        axes_flat[r * n_cols].set_ylabel("Raw Spheroid Volume per Well\n($10^6\\,\\mu\\mathrm{m}^3 = 1\\,\\mathrm{nL}$) [Log Scale]", fontsize=11.5, fontweight="bold")
 
     fig6.suptitle("Raw Total Spheroid Volume per Replicate Well (Day 0 vs Day 7, Deduplicated)\nValues in $10^6\\,\\mu\\mathrm{m}^3$ (Nanoliters) with Individual Well Raw Ratios ($V_{t7} / V_{t0}$)", fontsize=14, fontweight="bold", y=0.98)
     plt.tight_layout(rect=[0, 0, 1, 0.95])

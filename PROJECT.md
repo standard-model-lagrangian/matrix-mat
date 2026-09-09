@@ -87,7 +87,7 @@ TIFF Image (1536x2048, EVOS Tag 37510)
 | 4 | M4: Integration, Verification & Artifacts | CLI runner, sample 12 tuning loop, full dataset execution, overlays, contact sheets, publication figures, report.md/html, review manager | M3, E2E | PLANNED |
 
 ## Code Layout
-Target directory: `/Users/frederick/Visual Studio /Material discovery/spheroid_pipeline_v2`
+Target directory: `spheroid_pipeline_v2/`
 ```
 spheroid_pipeline_v2/
 ├── __init__.py

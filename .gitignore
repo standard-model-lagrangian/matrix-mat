@@ -37,8 +37,14 @@ runs/
 masks/
 output_audit_sample12/
 review/
+DECISIONS.md
+**/DECISIONS.md
 *.tif
 *.tiff
+!tests/fixtures/**/*.tif
+!tests/fixtures/**/*.tiff
+
+
 
 # Interactive / IDE temporary files
 .vscode/

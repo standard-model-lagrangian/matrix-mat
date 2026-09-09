@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "matrix-mat"
+version = "0.1.0"
+description = "High-precision, QC-audited image analysis pipelines for brightfield spheroid volume changes and immunofluorescence nuclear density."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Material Discovery Contributors" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
+    "scikit-image>=0.22.0",
+    "opencv-python-headless>=4.8.0",
+    "pandas>=2.1.0",
+    "pyyaml>=6.0",
+    "matplotlib>=3.8.0",
+    "tifffile>=2023.9.0",
+    "pillow>=10.0.0",
+    "imagecodecs>=2023.1.23",
+    "torch>=2.1.0",
+    "cellpose>=4.0.0",
+]
+
+[project.scripts]
+spheroid-brightfield = "spheroid_pipeline_v2.run_pipeline:main"
+spheroid-if = "spheroid_if_sweep.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["spheroid_pipeline_v2*", "spheroid_if_sweep*"]

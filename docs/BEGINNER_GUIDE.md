@@ -93,10 +93,14 @@ Material discovery/
 │   ├── REPRODUCIBILITY_AND_TROUBLESHOOTING.md # Error codes, warnings, and preflight auditing
 │   └── VISUALIZATION_GUIDE.md               # Scientific interpretation of all publication figures
 │
-├── run_pipeline.py                          # Forwarding CLI wrapper for Brightfield Pipeline
-├── compare_runs.py                          # Forwarding CLI wrapper for IF Cross-Run Comparison
-└── compare_prepost.py                       # Forwarding CLI wrapper for IF Ablation Comparison
+├── run_pipeline.py                          # Canonical CLI entry point for Brightfield Pipeline
+├── pyproject.toml                           # Package metadata and console scripts
+└── requirements.txt                         # Pipeline dependencies
 ```
+
+> [!NOTE]
+> **Model Weights Availability (`models/cpsam_v2`):**
+> `models/cpsam_v2` contains the local pretrained weights for Cellpose-SAM (Cellpose 4.x vision transformer, ~1.2 GB). If these weights are absent (e.g. on a fresh clone where `models/` is gitignored), both pipelines automatically download the official weights from HuggingFace / MouseLand upon first invocation.
 
 ---
 
@@ -128,7 +132,7 @@ Raw images in `nuclei density analysis/` must come in pairs sharing the same bas
 If you are working directly in this workspace, the environment is already created:
 ```bash
 # 1. Navigate to the project root
-cd "/Users/frederick/Visual Studio /Material discovery"
+cd matrix-mat
 
 # 2. Activate the pre-configured Python virtual environment
 source .venv/bin/activate
@@ -138,7 +142,7 @@ python -c "import torch, cellpose, cv2; print('PyTorch:', torch.__version__, '| 
 ```
 
 ### Option B: Installing from Scratch via `pip` (New Machine or Fresh Setup)
-All dependencies are completely specified in [`requirements.txt`](file:///Users/frederick/Visual%20Studio%20/Material%20discovery/requirements.txt). No special build tools are required:
+All dependencies are completely specified in [`requirements.txt`](../requirements.txt). No special build tools are required:
 ```bash
 # 1. Create a clean Python virtual environment (Python 3.10 - 3.13)
 python3 -m venv .venv

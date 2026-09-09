@@ -87,7 +87,7 @@ class ReportGenerator:
 
         # Calculate Executive KPIs
         total_images = len(manifest_df) if manifest_df is not None and not manifest_df.empty else 0
-        matched_pairs_fov = int(manifest_df["is_matched_pair"].sum()) if manifest_df is not None and not manifest_df.empty and "is_matched_pair" in manifest_df.columns else 0
+        matched_pairs_fov = int(manifest_df[manifest_df["is_matched_pair"] == True]["pair_key"].nunique()) if manifest_df is not None and not manifest_df.empty and "is_matched_pair" in manifest_df.columns else 0
         total_objects = len(objects_df) if objects_df is not None and not objects_df.empty else 0
         total_pairs = len(pairs_df) if pairs_df is not None and not pairs_df.empty else 0
 

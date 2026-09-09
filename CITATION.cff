@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use this software in your research, please cite it as below."
+authors:
+  - family-names: "Chen"
+    given-names: "Zicor"
+  - family-names: "Contributors"
+    given-names: "Material Discovery"
+title: "Matrix-Mat: High-Precision Image Analysis Pipelines for Spheroid Morphometry and Immunofluorescence Density"
+version: 0.1.0
+date-released: 2026-09-09
+url: "https://github.com/standard-model-lagrangian/matrix-mat"
+license: MIT
