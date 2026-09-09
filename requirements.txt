@@ -1,0 +1,19 @@
+# Spheroid Image Analysis Pipelines (Brightfield & Immunofluorescence)
+# Compatible with Python 3.10 - 3.13 on macOS (Apple Silicon MPS / Intel) and Linux (CUDA / CPU)
+
+# Core Scientific Computing & Classical Computer Vision (Brightfield & IF)
+numpy>=1.26.0
+scipy>=1.11.0
+scikit-image>=0.22.0
+opencv-python-headless>=4.8.0
+pandas>=2.1.0
+pyyaml>=6.0
+matplotlib>=3.8.0
+tifffile>=2023.9.0
+pillow>=10.0.0
+imagecodecs>=2023.1.23
+
+# Deep Learning / Segmentation (Immunofluorescence Cellpose-SAM Pipeline)
+torch>=2.1.0
+cellpose>=3.0.0
+

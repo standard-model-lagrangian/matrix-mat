@@ -1,0 +1,137 @@
+# Pre/Post-Processing 2x2 Factorial Ablation Sweep Configuration
+# Freezes Cellpose-SAM hyperparameters at A_baseline values.
+data_dir: "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
+runs_dir: "runs"
+allow_unpaired: true
+overwrite: false
+random_seed: 42
+default_pixel_size_um: 0.5050492474122553
+
+model:
+  pretrained_model: "models/cpsam_v2"
+  model_type: "cpsam"
+  use_gpu: true
+
+combos:
+  - slug: "101_PP00_none_none"
+    name: "PP00_none_none"
+    description: "Control: Preprocessing OFF, Post-processing OFF (Frozen A_baseline parameters)"
+    flow_threshold: 0.4
+    cellprob_threshold: 0.0
+    diameter: null
+    min_size: 15
+    stitch_threshold: 0.0
+    do_3D: false
+    preprocessing:
+      enabled: false
+    postprocessing:
+      enabled: false
+
+  - slug: "102_PP10_bg_only"
+    name: "PP10_bg_only"
+    description: "Preprocessing Only: Background subtraction + normalization, Post-processing OFF"
+    flow_threshold: 0.4
+    cellprob_threshold: 0.0
+    diameter: null
+    min_size: 15
+    stitch_threshold: 0.0
+    do_3D: false
+    preprocessing:
+      enabled: true
+      expected_nuclear_diameter_um: 11.7
+      background:
+        method: "rolling_ball"
+        radius_multiplier: 3.5
+        downsample_factor: 2
+      normalize:
+        enabled: true
+        p_low: 1.0
+        p_high: 99.8
+      denoise:
+        method: "none"
+    postprocessing:
+      enabled: false
+
+  - slug: "103_PP01_post_only"
+    name: "PP01_post_only"
+    description: "Post-processing Only: Preprocessing OFF, Size gate + splitting + border exclusion ON"
+    flow_threshold: 0.4
+    cellprob_threshold: 0.0
+    diameter: null
+    min_size: 15
+    stitch_threshold: 0.0
+    do_3D: false
+    preprocessing:
+      enabled: false
+    postprocessing:
+      enabled: true
+      deduplicate:
+        iou_threshold: 0.50
+      size_gate:
+        enabled: true
+        min_vol_um3: 210.0
+        max_vol_um3: 3364.0
+      splitting:
+        enabled: true
+        method: "seeded_watershed"
+        split_factor: 2.0
+        h_maxima: 10.0
+        min_distance_um: 4.0
+      border_exclusion:
+        enabled: true
+        clearance_um: 5.85
+
+  - slug: "104_PP11_full"
+    name: "PP11_full"
+    description: "Full Pipeline: Preprocessing (BG sub + norm) + Post-processing (size gate + split + border)"
+    flow_threshold: 0.4
+    cellprob_threshold: 0.0
+    diameter: null
+    min_size: 15
+    stitch_threshold: 0.0
+    do_3D: false
+    preprocessing:
+      enabled: true
+      expected_nuclear_diameter_um: 11.7
+      background:
+        method: "rolling_ball"
+        radius_multiplier: 3.5
+        downsample_factor: 2
+      normalize:
+        enabled: true
+        p_low: 1.0
+        p_high: 99.8
+      denoise:
+        method: "none"
+    postprocessing:
+      enabled: true
+      deduplicate:
+        iou_threshold: 0.50
+      size_gate:
+        enabled: true
+        min_vol_um3: 210.0
+        max_vol_um3: 3364.0
+      splitting:
+        enabled: true
+        method: "seeded_watershed"
+        split_factor: 2.0
+        h_maxima: 10.0
+        min_distance_um: 4.0
+      border_exclusion:
+        enabled: true
+        clearance_um: 5.85
+
+qc:
+  snr_min: 1.5
+  min_nuclear_vol_um3: 150.0
+  max_nuclear_vol_um3: 4000.0
+  border_margin_px: 5
+  edge_heavy_fraction: 0.25
+  saturation_fraction_max: 0.005
+  blur_percentile_cutoff: 10.0
+  duplicate_iou_threshold: 0.50
+  outlier_iqr_factor: 1.5
+
+features:
+  spheroid_extent_method: "actin_threshold"
+  actin_background_percentile: 50.0

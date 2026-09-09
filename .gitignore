@@ -1,0 +1,60 @@
+# Python Virtual Environments & Packages
+.venv/
+venv/
+**/venv/
+**/.venv/
+**/venv*/
+
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Heavy Neural Network Model Weights (>1 GB)
+models/cpsam_v2
+models/*.pth
+models/*.pt
+models/*.onnx
+
+# Raw Experimental Microscopy Data (Gigabytes of raw physical TIFFs)
+Experimental data /
+Experimental data/
+
+# Pipeline Run Artifacts & Generated Images
+output/
+runs/
+masks/
+output_audit_sample12/
+review/
+*.tif
+*.tiff
+
+# Interactive / IDE temporary files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Coverage & Test Caches
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Agent Scratch Directories
+.agents/
+
+# Independent Repositories within Workspace
+Hydrogel_BO/
+peptide_materials_ml/
+

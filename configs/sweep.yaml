@@ -1,0 +1,72 @@
+# Master Configuration for Multi-Run Spheroid IF Segmentation Sweep
+data_dir: "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
+runs_dir: "runs"
+allow_unpaired: true
+overwrite: false
+random_seed: 42
+default_pixel_size_um: 0.5050492474122553
+
+# Cellpose-SAM model settings
+model:
+  pretrained_model: "models/cpsam_v2"
+  model_type: "cpsam"
+  use_gpu: true
+
+# The 4 Sweep Configurations
+combos:
+  - slug: "001_A_baseline"
+    name: "A_baseline"
+    description: "Current defaults as control (cpsam defaults: flow_threshold=0.4, cellprob_threshold=0.0, diameter=None, no stitching)"
+    flow_threshold: 0.4
+    cellprob_threshold: 0.0
+    diameter: null
+    min_size: 15
+    stitch_threshold: 0.0
+    do_3D: false
+
+  - slug: "002_B_sensitive"
+    name: "B_sensitive"
+    description: "Recover dim/under-segmented nuclei (cellprob_threshold=-2.0, flow_threshold=0.8)"
+    flow_threshold: 0.8
+    cellprob_threshold: -2.0
+    diameter: null
+    min_size: 15
+    stitch_threshold: 0.0
+    do_3D: false
+
+  - slug: "003_C_conservative"
+    name: "C_conservative"
+    description: "Suppress debris/over-segmentation (cellprob_threshold=1.0, flow_threshold=0.2, min_size=30)"
+    flow_threshold: 0.2
+    cellprob_threshold: 1.0
+    diameter: null
+    min_size: 30
+    stitch_threshold: 0.0
+    do_3D: false
+
+  - slug: "004_D_3d"
+    name: "D_3d"
+    description: "Volumetric handling (detects 2D vs 3D; skips 3D with logged reason if single-plane, executes 2D with stitch_threshold=0.7)"
+    flow_threshold: 0.4
+    cellprob_threshold: 0.0
+    diameter: null
+    min_size: 15
+    stitch_threshold: 0.7
+    do_3D: true
+
+# QC Gating Thresholds
+qc:
+  snr_min: 1.5
+  min_nuclear_vol_um3: 150.0   # ~6.6 um equivalent spherical diameter
+  max_nuclear_vol_um3: 4000.0  # ~19.7 um equivalent spherical diameter
+  border_margin_px: 5
+  edge_heavy_fraction: 0.25
+  saturation_fraction_max: 0.005
+  blur_percentile_cutoff: 10.0 # lowest 10% Laplacian variance in cohort flagged blurry
+  duplicate_iou_threshold: 0.50
+  outlier_iqr_factor: 1.5
+
+# Features and summary settings
+features:
+  spheroid_extent_method: "actin_threshold"  # 'actin_threshold' or 'nuclei_convex_hull'
+  actin_background_percentile: 50.0

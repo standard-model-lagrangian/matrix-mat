@@ -1,0 +1,195 @@
+# ==============================================================================
+# Master Configuration: Brightfield Spheroid Volume-Change Pipeline (t0 vs t7)
+# ==============================================================================
+# This configuration file controls the end-to-end multi-spheroid instance
+# segmentation, quality control gating, Hungarian centroid pairing, and
+# population-level statistical testing between Day 0 and Day 7 brightfield images.
+#
+# All parameters are strictly defined with units, default values, and physical
+# rationales below.
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Dataset Directory Paths
+# ------------------------------------------------------------------------------
+# Paths can be relative to the repository root or absolute.
+# Note: Folder names containing spaces are fully supported.
+t0_dir: "Experimental data /Chuling cells/Spheroid Day0 260805"
+t7_dir: "Experimental data /Chuling cells/Spheroid D7 260812"
+
+# Output directory where all CSVs, overlays, contact sheets, and figures are written
+output_dir: "output"
+
+# Review directory for human-in-the-loop manual mask validation
+# Drop manual 16-bit PNG masks into this folder (<image_id>.png); the pipeline
+# will prioritize them and compute Dice / IoU agreement in validation.csv
+review_dir: "review"
+
+# ------------------------------------------------------------------------------
+# 2. Optical Calibration & Determinism
+# ------------------------------------------------------------------------------
+# Default optical scale in micrometers per pixel (um/pixel).
+# Calibrated for the ThermoFisher EVOS M5000 / FL Auto 4x objective.
+# The pipeline attempts to extract this automatically from TIFF Tag 37510 JSON or
+# OME-XML headers. If missing or uncalibrated, this default is used and an
+# explicit warning is logged to run_metadata.json.
+default_pixel_size_um: 1.518817
+
+# CLI optical scale override (null means automatic extraction with fallback above)
+cli_pixel_size_um: null
+
+# Fixed random seed for bootstrap confidence intervals and permutation tests
+random_seed: 42
+
+# ------------------------------------------------------------------------------
+# 3. Image Preprocessing & Illumination Flattening
+# ------------------------------------------------------------------------------
+preprocess:
+  # Background flattening Gaussian sigma in pixels.
+  # Set to 0.0 to disable division (recommended: standard Gaussian division can
+  # artificially flatten spheroid core contrast against the local hydrogel background).
+  flat_field_sigma: 0.0
+
+  # Contrast percentile normalization boundaries [p_low, p_high]
+  percentile_low: 1.0
+  percentile_high: 99.0
+
+  # Whether to export normalized/corrected images to output/corrected_images/
+  save_corrected_images: true
+
+  # Target downsampled diameter range for deep learning backends (Cellpose)
+  # Standardizes input image scale so spheroid diameters approximate 150-250 pixels.
+  target_diameter_px: 200.0
+
+# ------------------------------------------------------------------------------
+# 4. Segmentation Hierarchy & Disk Caching
+# ------------------------------------------------------------------------------
+segmentation:
+  # Primary segmentation backend: 'cpsam' (Cellpose-SAM), 'cellpose' (cyto3), or 'classical'
+  backend: "cpsam"
+
+  # Path to local Cellpose-SAM model weights (bypasses online HuggingFace downloads)
+  cpsam_model_path: "models/cpsam_v2"
+
+  # Directory for lossless 16-bit PNG mask caching
+  # Prevents redundant re-inference on subsequent runs
+  cache_dir: "masks"
+
+  # Cellpose-SAM inference parameters
+  cpsam_expected_diameter_px: 160.0
+  cpsam_flow_threshold: 0.4
+  cpsam_cellprob_threshold: 0.0
+  cpsam_min_size_px: 40
+
+  # Classical multi-scale adaptive thresholding window sizes (odd integers in pixels)
+  # Used as the deterministic last-resort fallback backend
+  adaptive_window_sizes: [31, 61, 121, 241]
+
+  # Morphological cleaning kernel radii (pixels)
+  morph_open_radius: 2
+  morph_close_radius: 4
+
+  # Minimum Euclidean distance (pixels) between regional maxima in watershed
+  watershed_min_distance_px: 25
+
+  # OpenCV Hough Circle detection fallback
+  # Triggers if classical segmentation yields 0 candidate objects
+  hough_fallback_enabled: true
+  hough_min_radius_um: 25.0
+  hough_max_radius_um: 600.0
+
+# ------------------------------------------------------------------------------
+# 5. Quality Control (QC) Gating Protocol (Zero Silent Drops)
+# ------------------------------------------------------------------------------
+# Every detected object is classified as PASS, REVIEW, or FAIL.
+# No data is ever silently dropped; all objects are logged in objects.csv with
+# their exact metrics and rejection rationale.
+qc:
+  # Physical size bounds in micrometers (equivalent spherical diameter)
+  # Objects outside [min_d_um, max_d_um] are flagged FAIL: debris_undersized or oversized
+  min_d_um: 40.0
+  max_d_um: 1500.0
+
+  # Strict pass bounds for high-confidence spheroids
+  min_pass_diameter_um: 40.0
+  max_pass_diameter_um: 1200.0
+
+  # Image border clearance margin in pixels
+  # Objects within border_margin_px of the frame edge are flagged FAIL: touches_image_border
+  border_margin_px: 15
+
+  # Annular ring background contrast check:
+  # Spheroids in brightfield are darker than their surrounding gel background.
+  # A mask must satisfy: I_interior <= ring_contrast_factor * I_annular_ring
+  ring_width_px: 15
+  ring_contrast_factor: 0.90  # Must be at least 10% darker than background ring
+
+  # Plausibility threshold: maximum fraction of field-of-view (FOV) area a single mask may occupy
+  # Prevents giant single-mask hallucination artifacts (>25% FOV is flagged FAIL)
+  max_single_mask_area_fraction: 0.25
+
+  # Minimum circularity threshold: 4 * pi * Area / Perimeter^2
+  # Objects with circularity below this threshold are flagged REVIEW (not FAIL)
+  min_circularity: 0.65
+
+  # Minimum solidity: Area / ConvexHullArea
+  min_solidity: 0.85
+
+  # Maximum eccentricity: sqrt(1 - (b/a)^2) of fitted ellipse
+  max_eccentricity: 0.82
+
+  # Maximum number of spheroids per FOV (0 means unlimited)
+  max_objects_per_fov: 0
+
+# ------------------------------------------------------------------------------
+# 6. Hungarian Temporal Centroid Pairing (Day 0 -> Day 7)
+# ------------------------------------------------------------------------------
+pairing:
+  # Maximum allowed centroid displacement as a fraction of mean spheroid radius:
+  # max_shift = max(min_shift_px, max_centroid_shift_fraction * mean_radius_px)
+  max_centroid_shift_fraction: 1.5
+  min_displacement_px: 50.0
+
+  # Fallback to greedy mutual nearest centroid matching if Hungarian cost matrix is degenerate
+  fallback_greedy: true
+
+# ------------------------------------------------------------------------------
+# 7. Population Statistics & Hypothesis Testing
+# ------------------------------------------------------------------------------
+stats:
+  # Baseline control hydrogel formulation for two-sample permutation tests
+  control_condition: "Mat"
+
+  # Denominator gate: minimum Day 0 diameter (um) required to compute fold change (V7 / V0).
+  # Pairs with d0 < 60 um are excluded from fold-change stats to prevent near-zero debris inflation.
+  min_denominator_d0_um: 60.0
+
+  # Trajectory bounds for fold change (V7 / V0):
+  # Fold change outside [min_fold_change, max_fold_change] is flagged REVIEW
+  min_fold_change: 0.1
+  max_fold_change: 20.0
+
+  # Non-parametric bootstrap iterations for 95% Confidence Intervals on median fold change
+  bootstrap_iterations: 2000
+
+  # Two-sample Monte Carlo permutation test iterations vs control
+  permutation_iterations: 10000
+
+  # Confidence level for intervals (e.g. 0.95 = 95% CI)
+  confidence_level: 0.95
+
+  # Whether to include REVIEW-flagged objects in primary condition statistics
+  include_review_in_stats: false
+
+# ------------------------------------------------------------------------------
+# 8. Supervision Artifacts & Output Organization
+# ------------------------------------------------------------------------------
+artifacts:
+  overlay_dir: "overlays"
+  contact_sheets_dir: "contact_sheets"
+  figures_dir: "figures"
+  save_pdf: true
+  save_png: true
+  contact_sheet_cols: 4
+  contact_sheet_dpi: 150
+  figure_dpi: 300
