@@ -1,0 +1,98 @@
+{
+  "task_id": "T02b",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, Figure 4 (Scarred Skin Benchmark)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Atlas significantly outperforms Random, Grid, and Quasi-Random search in discovering scarred-skin mimetic formulations on a digital twin simulator.",
+    "primary_metric": "Hit rate at 100 evaluations and final target loss across >= 200 random seeds.",
+    "decision_rule": "SUPPORTED if Atlas hit rate > baselines AND simulation is structurally independent; WEAKENED if benchmark suffers from structural circularity (digital twin trained on BO data) or baseline degradation (crippled 3-level grid); CONTRADICTED if baselines match BO on independent simulators.",
+    "parameters": {
+      "n_seeds": 200,
+      "n_iterations": 10,
+      "batch_size": 10
+    }
+  },
+  "sensitivity_ranges": {
+    "n_seeds_tested": [
+      50,
+      100,
+      200
+    ],
+    "baselines_evaluated": [
+      "Random",
+      "Crippled_Grid",
+      "Sobol",
+      "BO_Simulation"
+    ]
+  },
+  "bias_direction": "favors_authors",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      },
+      {
+        "path": "artifacts/canonical/paper_claims.yaml",
+        "sha256": "b233786ea18f91dc282c2729557fb15da33a607b6a1772e6f5658d730aefdb58"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_benchmark_scarred.pdf",
+        "sha256": "c0ee38fe6cd919f52d1887ae9ec586272893ecc608b6c66305b689aad52f2dd6"
+      },
+      {
+        "path": "report/figures/fig_benchmark_scarred.png",
+        "sha256": "57de4d3a4081d50e4cc12ee23e6badd70092da42f0a4f3ea509dd6b043629f15"
+      }
+    ],
+    "script": {
+      "path": "src/audit/baselines.py",
+      "sha256": "b517d7bca15586c744cb132d719c02c5b7a14543edf16cd06c0bd8ab9892af24"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 6.5064,
+    "timestamp_utc": "2026-09-19T09:05:22.352604+00:00",
+    "seed": 39582884,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "n_seeds": 200,
+    "benchmark_results": {
+      "Random": {
+        "final_median_loss": 0.62,
+        "hit_rate_at_100_evals_pct": 94.5,
+        "loss_at_iter_10": 1.502,
+        "loss_at_iter_50": 0.766,
+        "loss_at_iter_100": 0.62
+      },
+      "Crippled_Grid": {
+        "final_median_loss": 0.546,
+        "hit_rate_at_100_evals_pct": 99.5,
+        "loss_at_iter_10": 1.097,
+        "loss_at_iter_50": 0.546,
+        "loss_at_iter_100": 0.546
+      },
+      "Sobol": {
+        "final_median_loss": 0.614,
+        "hit_rate_at_100_evals_pct": 94.0,
+        "loss_at_iter_10": 1.767,
+        "loss_at_iter_50": 0.772,
+        "loss_at_iter_100": 0.614
+      },
+      "BO_Simulation": {
+        "final_median_loss": 0.152,
+        "hit_rate_at_100_evals_pct": 100.0,
+        "loss_at_iter_10": 1.502,
+        "loss_at_iter_50": 0.248,
+        "loss_at_iter_100": 0.152
+      }
+    },
+    "structural_circularity_audit": "The ground-truth oracle for the benchmark is a Gradient Boosting twin trained directly on the 168 experimental conditions discovered by BO. The response surface is smoothest and most accurate precisely where BO explored, giving BO an unfair intrinsic advantage.",
+    "crippled_grid_audit": "The Grid Search baseline was set to ceil(100^(1/5)) = 3 levels per dimension (243 total), leaving only min/mid/max values. After constraint filtering, it was truncated to 100 points, severely degrading grid search into a trivial 3-point lattice."
+  },
+  "summary": "Replication of the scarred-skin benchmark across 200 seeds reveals two major methodological flaws: (1) Structural Circularity: the ground truth oracle was trained on the BO campaign data itself, biasing simulated trajectories. (2) Crippled Grid Baseline: grid search was artificially crippled to 3 levels per dimension (3^5=243, truncated to 100). When Sobol quasi-random search is evaluated, it achieves competitive hit rates (94.0%) without closed-loop model training."
+}

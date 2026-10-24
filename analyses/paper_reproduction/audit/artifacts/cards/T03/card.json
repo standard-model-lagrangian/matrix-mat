@@ -1,0 +1,118 @@
+{
+  "task_id": "T03",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, SI Section 7, Table S6, Figure S9",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Random 5-fold CV accurately estimates prospective active learning generalization, and high overall R^2 indicates high fidelity across all tissue targets.",
+    "primary_metric": "Comparison of Random 5-fold R^2 vs Forward-Chaining / LOCO R^2, and soft-regime subset R^2 (E < 3 kPa).",
+    "decision_rule": "SUPPORTED if Forward-Chaining R^2 matches Random CV R^2 within 0.05 and soft-regime R^2 >= 0.70; WEAKENED if soft-regime R^2 collapses (< 0.20 or negative) despite high overall R^2 (Simpson's paradox / range restriction) or selection leakage is confirmed; CONTRADICTED if LOCO R^2 < 0.0.",
+    "parameters": {
+      "n_splits": 5,
+      "soft_regime_threshold_kpa": 3.0,
+      "sobol_samples": 10000
+    }
+  },
+  "sensitivity_ranges": {
+    "cv_protocols": [
+      "Random_5Fold",
+      "Forward_Chaining",
+      "Leave_One_Campaign_Out"
+    ],
+    "ks_test_reference": "10000 Sobol quasi-random samples in [0, 1]^5"
+  },
+  "bias_direction": "conservative",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      },
+      {
+        "path": "artifacts/canonical/prior.parquet",
+        "sha256": "ddcf4910feac2607b95528cf0053a707d862190f8308d848cd2f76d9e8fe20d1"
+      }
+    ],
+    "outputs": [],
+    "script": {
+      "path": "src/audit/cv_estimand.py",
+      "sha256": "aa592f9857ef119afa6acac484b203e1833aefe2da9a688d81a298c08965a1a4"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 0.8458,
+    "timestamp_utc": "2026-09-19T09:05:35.217570+00:00",
+    "seed": 289516097,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "random_5fold_modulus_r2": 0.763,
+    "random_5fold_modulus_rmse": 2.159,
+    "random_5fold_soft_subset_r2": -2.927,
+    "random_5fold_soft_rmse_div_tol": 9.62,
+    "forward_chaining_modulus_r2": 0.677,
+    "forward_chaining_modulus_rmse": 2.871,
+    "forward_chaining_soft_subset_r2": -15.31,
+    "forward_chaining_soft_rmse_div_tol": 18.27,
+    "loco_closed_loop_modulus_r2": 0.628,
+    "loco_closed_loop_modulus_rmse": 3.078,
+    "nearest_neighbor_ks_statistic": 0.7319,
+    "nearest_neighbor_ks_pvalue": 3.279137541283499e-77,
+    "cv_protocols_summary": {
+      "Random_5Fold_Modulus": {
+        "rmse": 2.159196852289735,
+        "mae": 1.384931549226376,
+        "r2": 0.7625307669526721,
+        "null_rmse": 4.430865464349574,
+        "log_r2": 0.8151892871429209,
+        "log_rmse": 0.4825415496284145,
+        "soft_rmse": 1.4427465875425034,
+        "soft_mae": 0.7509730112894772,
+        "soft_r2": -2.926588100380671,
+        "soft_rmse_div_tol": 9.61831058361669
+      },
+      "Random_5Fold_StressRelaxation": {
+        "rmse": 11.233733695401387,
+        "mae": 6.246778085592336,
+        "r2": 0.7666319952602056,
+        "null_rmse": 23.25431054298031,
+        "log_r2": 0.8092223140784409,
+        "log_rmse": 0.27448867828921597,
+        "soft_rmse": null,
+        "soft_mae": null,
+        "soft_r2": null,
+        "soft_rmse_div_tol": null
+      },
+      "Forward_Chaining_Modulus": {
+        "rmse": 2.870812873422118,
+        "mae": 2.143973727324574,
+        "r2": 0.67653088798951,
+        "null_rmse": 5.0476412045031145,
+        "log_r2": 0.633969159765005,
+        "log_rmse": 0.7498004617195728,
+        "soft_rmse": 2.740432950450613,
+        "soft_mae": 1.80732176821991,
+        "soft_r2": -15.310273090473018,
+        "soft_rmse_div_tol": 18.269553003004088
+      },
+      "LOCO_ClosedLoop_Modulus": {
+        "rmse": 3.0782293386300577,
+        "mae": 2.239641257859111,
+        "r2": 0.6281010155140843,
+        "null_rmse": 5.0476412045031145,
+        "log_r2": 0.6665917893842614,
+        "log_rmse": 0.7156077074332859,
+        "soft_rmse": 1.3679693891492697,
+        "soft_mae": 0.97329696726012,
+        "soft_r2": -3.064205225369757,
+        "soft_rmse_div_tol": 9.119795927661798
+      }
+    },
+    "selection_leakage_finding": {
+      "finding": "Selection leakage detected in SI Section 7 digital twin benchmarking",
+      "description": "Upstream digital_twin.py performed a single 80/20 train/test split with random_state=30. Bayesian optimization of hyperparameters was conducted on the 80% split, but final model architecture selection (GB vs SVR vs GP) and Table S6 performance claims were evaluated and chosen directly on the 20% test partition without an independent external test holdout.",
+      "consequence": "Reported R^2 values in Table S6 (GB R^2=0.90, SVR R^2=0.92) reflect post-hoc selection over test performance rather than strictly out-of-sample generalization."
+    }
+  },
+  "summary": "Cross-validation estimand audit demonstrates severe range restriction (Simpson's paradox): while Random 5-Fold achieves an overall R^2 of 0.76, the subset R^2 in the soft regime (E < 3 kPa) collapses to -2.93, with soft RMSE (1.44 kPa) exceeding the target window by 9.6x. Under Leave-One-Campaign-Out (LOCO), R^2 drops to 0.63. Furthermore, nearest-neighbor KS test (stat = 0.732, p < 1e-10) confirms non-uniform input clustering, and SI Section 7 exhibits test set selection leakage."
+}

@@ -5,6 +5,21 @@ All notable changes to the **Matrix-Mat** project will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-10-24
+
+### Changed (Breaking Changes)
+- **Areal Density Standardization**: Replaced pseudo-volumetric density `nuclei_density_per_mm3` with physically sound areal planar density `nuclei_per_mm2` across the immunofluorescence sweep pipeline (`matrix_mat.if_density`).
+- **Hierarchical Statistical Inference**: Brightfield inference moved from pseudo-replicated spheroid-level sampling to gel-level hierarchical bootstrap and cluster permutation tests with Holm-Bonferroni family-wise error rate control.
+- **Strict Content-Addressed Caching**: Mask caching now keys off image SHA-256, model SHA-256, and full parameter payloads to prevent stale mask reuse across datasets and parameter changes.
+- **Config Validation with Pydantic v2**: Replaced unvalidated dictionaries with strict Pydantic models forbidding unknown or misspelled configuration keys.
+- **Monorepo Layout Migration**: Relocated core code to `src/matrix_mat/{core,brightfield,if_density,reporting}`, leaving backward-compatible shims in `spheroid_pipeline_v2` and `spheroid_if_sweep`.
+- **Dynamic Reporting**: Removed hardcoded outcome statements and paired testing on unpaired Day 0 / Day 7 distributions; all reporting figures now consume precomputed statistics directly from `core.stats` tables.
+
+### Fixed
+- **Post-Processing Execution Order**: Reordered IF pipeline steps so clump splitting precedes size gating, preventing valid clusters from being erroneously discarded as debris.
+- **Reproducibility & Determinism**: Enforced seeded pseudo-random generators (`np.random.default_rng`), pinned random seeds, and decoupled heavy PyTorch imports from CPU-only unit test paths.
+- **CLI and Documentation Alignment**: Aligned CLI flags and documentation in `README.md`, verified through automated argument-parsing tests (`test_readme_commands_parse`).
+
 ## [0.1.0] - 2026-09-09
 
 ### Added

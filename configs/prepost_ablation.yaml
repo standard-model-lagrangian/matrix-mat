@@ -1,6 +1,6 @@
 # Pre/Post-Processing 2x2 Factorial Ablation Sweep Configuration
 # Freezes Cellpose-SAM hyperparameters at A_baseline values.
-data_dir: "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
+data_dir: "${DATA_ROOT}/if"
 runs_dir: "runs"
 allow_unpaired: true
 overwrite: false

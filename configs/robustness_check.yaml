@@ -1,6 +1,6 @@
 # Robustness Regression Sweep Configuration
 # Re-runs the 4 original Cellpose-SAM configs (verbatim) with the winning PP11 pre/post stack applied.
-data_dir: "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
+data_dir: "${DATA_ROOT}/if"
 runs_dir: "runs"
 allow_unpaired: true
 overwrite: false

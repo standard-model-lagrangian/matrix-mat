@@ -1,0 +1,27 @@
+##TITLE= Audit trail, TopSpin 3.8.0
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmrsu
+$$ /opt/topspin/nomad/data/adc/nmr/2608261658-3-21-fas324/10/audita.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2026-08-26 17:05:43.445 +0100>,<nmrsu>,<nanob>,<go4>,<TopSpin 3.8.0>,
+      <acquisition in progress>)
+(   2,<2026-08-26 17:07:27.956 +0100>,<nmrsu>,<nanob>,<go4>,<TopSpin 3.8.0>,
+      <created by zg on data set with UUID 'fda185e8-a167-11f1-8e24-80e82cede746'
+       started at 2026-08-26 17:05:43.447 +0100,
+       POWCHK enabled, PULCHK disabled,
+       completed at 2026-08-26 17:07:27.954 +0100
+
+       configuration hash MD5:
+       52 3A 7D 83 DA EB 20 49 4D 0A 52 6A 1C 2D 84 95
+       data hash MD5: 64K
+       3B FE 5B 9F FF FC 36 3C B3 C1 F8 4B 11 FA CE 2E>)
+(   3,<2026-08-26 17:07:27.996 +0100>,<nmrsu>,<nanob>,<audit>,<TopSpin 3.8.0>,
+      <user comment:
+       ICON-NMR User ID: adc
+       data hash MD5: 64K
+       3B FE 5B 9F FF FC 36 3C B3 C1 F8 4B 11 FA CE 2E>)
+##END=
+
+$$ hash MD5
+$$ B0 DA 45 38 BA 00 F8 6E 30 48 67 99 17 32 7F 98

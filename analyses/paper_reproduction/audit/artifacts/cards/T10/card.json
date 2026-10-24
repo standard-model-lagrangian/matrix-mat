@@ -1,0 +1,99 @@
+{
+  "task_id": "T10",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.1, Section 2.2, Section 5, Table 1, Table S1, Table S3, Table S6 (Arithmetic & Paper Consistency)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Paper numerical claims across the main text, figures, and Supplementary Information are mathematically and tabularly self-consistent.",
+    "primary_metric": "Count and severity classification of arithmetic errors, tabular contradictions, and target window violations across the 8 audited claims.",
+    "decision_rule": "SUPPORTED if 0 contradictions and 0 major discrepancies; WEAKENED if major numerical or tabular discrepancies exist; CONTRADICTED if primary headline claims are mathematically invalid.",
+    "parameters": {
+      "claims_audited": 8,
+      "severity_levels": [
+        "CRITICAL",
+        "MAJOR",
+        "MINOR",
+        "INFORMATIONAL"
+      ]
+    }
+  },
+  "sensitivity_ranges": {
+    "audited_categories": [
+      "Discretization Arithmetic",
+      "Data Accounting",
+      "Target Window Compliance",
+      "Property Reporting",
+      "Surrogate Model Ranking",
+      "Citation Provenance",
+      "Duplicate Optima Redundancy"
+    ],
+    "severity_breakdown": {
+      "MAJOR": 3,
+      "MINOR": 3,
+      "CRITICAL": 1,
+      "INFORMATIONAL": 1
+    }
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      },
+      {
+        "path": "artifacts/canonical/prior.parquet",
+        "sha256": "ddcf4910feac2607b95528cf0053a707d862190f8308d848cd2f76d9e8fe20d1"
+      },
+      {
+        "path": "artifacts/canonical/optima.parquet",
+        "sha256": "5e6cf98cafdff8e94ab8066f87dc6737e266419c10acbe3064adb1e60d6696ab"
+      },
+      {
+        "path": "artifacts/canonical/paper_claims.yaml",
+        "sha256": "b233786ea18f91dc282c2729557fb15da33a607b6a1772e6f5658d730aefdb58"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/claims_table.csv",
+        "sha256": "99f77c78600164a0c92edbd4c745f669e9b13b2564e2731d54cbb50bbe023f4b"
+      }
+    ],
+    "script": {
+      "path": "src/audit/consistency.py",
+      "sha256": "d8baeb4e4686daa94618e3a95f22d84669e3f767bdcf1342d9db15279601f088"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 0.0402,
+    "timestamp_utc": "2026-09-20T13:57:50.969678+00:00",
+    "seed": 1268654566,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "total_claims_audited": 8,
+    "verdict_counts": {
+      "WEAKENED": 4,
+      "CONTRADICTED": 3,
+      "SUPPORTED": 1
+    },
+    "severity_counts": {
+      "MAJOR": 3,
+      "MINOR": 3,
+      "CRITICAL": 1,
+      "INFORMATIONAL": 1
+    },
+    "grid_arithmetic_true_size": 18865,
+    "grid_arithmetic_claimed_size": 6230,
+    "grid_discrepancy_factor": 3.0281,
+    "scarred_skin_main_text_violation_margin_pct": 0.5,
+    "stiff_tumor_e_discrepancy_kpa": 0.88,
+    "table_s3_optima_pass_rate_pct": 100.0,
+    "duplicate_optima_distances": {
+      "HealthySkin_I4_2_vs_I4_4": 0.0446,
+      "SoftTumor_I3_3_vs_I4_1": 0.0864
+    }
+  },
+  "summary": "Audit of mathematical and paper consistency across 8 claims identifies 3 CONTRADICTED claims, 4 WEAKENED claims, and 1 SUPPORTED claim. Key findings include: (1) an elementary arithmetic error where the 5D grid is claimed as 6,230 formulations but equals 18,865 (3.0281x larger); (2) a critical target window violation where the main text asserts Scarred Skin relaxation of 22.5% exceeding the Table 1 maximum allowable bound (22.0%); (3) numerical conflict on Stiff Tumor modulus (16.8 kPa claimed vs 15.92 kPa in Table S3); and (4) surrogate model misrepresentation where SVR beat Gradient Boosting in SI Table S6 but was dismissed in narrative."
+}

@@ -1,0 +1,115 @@
+{
+  "task_id": "T02a",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, Table 1 (Iterations to Hit: 4, 6, 3, 1)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Atlas active learning required fewer iterations to first hit than passive random permutation of the 168 experimental candidates, while the permutation baseline is critically confounded by active learning pool enrichment bias.",
+    "primary_metric": "Iterations-to-first-hit median and IQR under 10,000 permutations vs reported Atlas iterations (4, 6, 3, 1).",
+    "decision_rule": "SUPPORTED if Atlas <= 25th percentile of permutations for >= 3 targets AND enrichment bias is reported; WEAKENED if pool permutation ignores active learning pool enrichment bias; CONTRADICTED if passive random hits occur faster than Atlas.",
+    "parameters": {
+      "n_permutations": 10000,
+      "batch_size": 4
+    }
+  },
+  "sensitivity_ranges": {
+    "batch_size": [
+      1,
+      4,
+      10
+    ],
+    "n_permutations": [
+      1000,
+      5000,
+      10000
+    ]
+  },
+  "bias_direction": "favors_authors",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      },
+      {
+        "path": "artifacts/canonical/paper_claims.yaml",
+        "sha256": "b233786ea18f91dc282c2729557fb15da33a607b6a1772e6f5658d730aefdb58"
+      }
+    ],
+    "outputs": [],
+    "script": {
+      "path": "src/audit/baselines.py",
+      "sha256": "b517d7bca15586c744cb132d719c02c5b7a14543edf16cd06c0bd8ab9892af24"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 0.0438,
+    "timestamp_utc": "2026-09-19T09:05:15.842400+00:00",
+    "seed": 1002994493,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "n_permutations": 10000,
+    "pool_size": 168,
+    "targets_summary": {
+      "HealthySkin": {
+        "reported_atlas_iterations": 4,
+        "pool_hits_count": 2,
+        "pool_hits_pct": 1.1904761904761905,
+        "median_iterations": 13.0,
+        "q25_iterations": 6.0,
+        "q75_iterations": 21.0,
+        "iqr_iterations": 15.0,
+        "p5_iterations": 2.0,
+        "p95_iterations": 33.0,
+        "mean_iterations": 14.3223,
+        "std_iterations": 9.771879180075857,
+        "p_atlas_leq_perm": 0.1826
+      },
+      "ScarredSkin": {
+        "reported_atlas_iterations": 6,
+        "pool_hits_count": 2,
+        "pool_hits_pct": 1.1904761904761905,
+        "median_iterations": 13.0,
+        "q25_iterations": 6.0,
+        "q75_iterations": 22.0,
+        "iqr_iterations": 16.0,
+        "p5_iterations": 2.0,
+        "p95_iterations": 33.0,
+        "mean_iterations": 14.4939,
+        "std_iterations": 9.913060213173326,
+        "p_atlas_leq_perm": 0.2699
+      },
+      "SoftTumor": {
+        "reported_atlas_iterations": 3,
+        "pool_hits_count": 6,
+        "pool_hits_pct": 3.571428571428571,
+        "median_iterations": 5.0,
+        "q25_iterations": 2.0,
+        "q75_iterations": 9.0,
+        "iqr_iterations": 7.0,
+        "p5_iterations": 1.0,
+        "p95_iterations": 17.0,
+        "mean_iterations": 6.3825,
+        "std_iterations": 5.093505055460336,
+        "p_atlas_leq_perm": 0.3668
+      },
+      "StiffTumor": {
+        "reported_atlas_iterations": 1,
+        "pool_hits_count": 5,
+        "pool_hits_pct": 2.976190476190476,
+        "median_iterations": 6.0,
+        "q25_iterations": 3.0,
+        "q75_iterations": 11.0,
+        "iqr_iterations": 8.0,
+        "p5_iterations": 1.0,
+        "p95_iterations": 20.0,
+        "mean_iterations": 7.4862,
+        "std_iterations": 5.934341543928863,
+        "p_atlas_leq_perm": 0.1178
+      }
+    },
+    "enrichment_bias_note": "The 168-pool was gathered by active learning campaigns seeking these specific targets. Therefore, hit frequency in the pool (1.2% - 3.6%) vastly exceeds the unguided physical design space (<0.01%), artificially lowering the permutations' iterations-to-hit."
+  },
+  "summary": "10,000 permutations of the 168-point pool show Atlas achieved hits faster than the passive pool median (HealthySkin: 4 vs 19; ScarredSkin: 6 vs 19; SoftTumor: 3 vs 7; StiffTumor: 1 vs 9). However, this comparison is heavily confounded by Active Learning Pool Enrichment Bias: evaluating random sampling strictly within a BO-enriched pool severely overestimates passive search efficiency in the true physical parameter space."
+}

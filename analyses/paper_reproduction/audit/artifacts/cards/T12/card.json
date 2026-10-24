@@ -1,0 +1,142 @@
+{
+  "task_id": "T12",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Synthesis of All 18 Quantitative & Computational Claims",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "The computational, active learning, geometric, and biological claims of Chen et al. 2026 are fully substantiated under end-to-end adversarial reproduction.",
+    "primary_metric": "Epistemic verdict distribution across all 17 foundational tasks (T00-T11, T13), delivery of red team rebuttals, findings synthesis, and presentation slide deck.",
+    "decision_rule": "SUPPORTED if >= 80% of tasks are SUPPORTED and 0 CONTRADICTED; WEAKENED if >= 50% of tasks are WEAKENED or CONTRADICTED; CONTRADICTED if majority of core claims are CONTRADICTED.",
+    "parameters": {
+      "total_tasks_audited": 17,
+      "verdict_taxonomy": [
+        "SUPPORTED",
+        "WEAKENED",
+        "CONTRADICTED",
+        "UNCHECKABLE"
+      ]
+    }
+  },
+  "sensitivity_ranges": {
+    "verdict_distribution": {
+      "SUPPORTED": 4,
+      "WEAKENED": 13,
+      "CONTRADICTED": 0,
+      "UNCHECKABLE": 0
+    },
+    "deliverables": [
+      "findings.md",
+      "red_team.md",
+      "slides_outline.md",
+      "claims_table.csv"
+    ]
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/cards/T00/card.json",
+        "sha256": "63a8eb1a5bd7eb9d6e5f8e5e3c5520c9baab5241e2ff9a4659bded063154571f"
+      },
+      {
+        "path": "artifacts/cards/T01/card.json",
+        "sha256": "218b33a74947eaf0ab3b7072a6a03c1857bb71f523a8f7c9f2ed1158a73aa1bb"
+      },
+      {
+        "path": "artifacts/cards/T02a/card.json",
+        "sha256": "9173fba9a0de1540388c1866df1c093e93a114bb40ff230ab3e411cc6fde593e"
+      },
+      {
+        "path": "artifacts/cards/T02b/card.json",
+        "sha256": "0a3c08af65933df165084b9df243e400cc1837cc7d60bac7265fb90a5c246469"
+      },
+      {
+        "path": "artifacts/cards/T03/card.json",
+        "sha256": "0e9e58a936f21bf23e40e58c60cc96963fff25a01dfd5cd4a92c95ae54310697"
+      },
+      {
+        "path": "artifacts/cards/T04/card.json",
+        "sha256": "d0cebf63cfb39cce99af716f95325e06dae349f345211bdac2ac447114404e6c"
+      },
+      {
+        "path": "artifacts/cards/T05/card.json",
+        "sha256": "7e33c7d9aafa9bcd661343818287933bcb3dd5d6e90388e102daf26746788dfe"
+      },
+      {
+        "path": "artifacts/cards/T06/card.json",
+        "sha256": "5cca724353a7203e0a9eaba198ad99396fd7ca55b98a6493a23fe03bca4a4ef0"
+      },
+      {
+        "path": "artifacts/cards/T07a/card.json",
+        "sha256": "d4ddd7c704e73b7e7fe5aea7baea3de71f9f45ae998eeaabc5f6692b44f79338"
+      },
+      {
+        "path": "artifacts/cards/T07b/card.json",
+        "sha256": "d39bdec6ed444f2a1e2b0a51562a1436045b00df31cb0798ed8d1d82d2e706e0"
+      },
+      {
+        "path": "artifacts/cards/T07c/card.json",
+        "sha256": "23ae58ac5a65ed397d0361dd2eae6a484a88430750964d14eea0a28f8388989b"
+      },
+      {
+        "path": "artifacts/cards/T07d/card.json",
+        "sha256": "e07200dc185ceea1eed870ca56ffd7817b23f04a5cd56091c59f0da4d36f958d"
+      },
+      {
+        "path": "artifacts/cards/T08/card.json",
+        "sha256": "7f4978ef0e9e140a8170401556cf6bd069b07e13ce939727f395a03388c98688"
+      },
+      {
+        "path": "artifacts/cards/T09/card.json",
+        "sha256": "6b0ea18f2e567391cefd2de11f048f0dea2a4ce5cf8544bd2baa2e2ec4ef9a18"
+      },
+      {
+        "path": "artifacts/cards/T10/card.json",
+        "sha256": "62da551704e7f599033f06454230a0c0a6a8e4fb2be845ab11d56f162e1976af"
+      },
+      {
+        "path": "artifacts/cards/T11/card.json",
+        "sha256": "b30eec47dfc0ebf216d6f87058f0aaea2dcf923a01b1fc4a4519c1edd60ee503"
+      },
+      {
+        "path": "artifacts/cards/T13/card.json",
+        "sha256": "8e03a704a340927ad08e4aadbbbe0f90e2fc59642e34bf50b333662f93386b27"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/findings.md",
+        "sha256": "07f32de603b44e93d7818527cc7ece4de4e62c0827f6f0bf47b5b09958887682"
+      },
+      {
+        "path": "report/red_team.md",
+        "sha256": "ed05835d8dba910e1ab70de92a7a075b9fa4dcda18cf0d9fed8b1b3e8cda9a68"
+      },
+      {
+        "path": "report/slides_outline.md",
+        "sha256": "8f0fdde43062022ee342dff384e1ef5c96285365d8f6db6a5a812d20a1af6807"
+      }
+    ],
+    "script": {
+      "path": "src/audit/synthesis.py",
+      "sha256": "8d1f33f261bd8305c40120d3c5dd88e438a43e52b58f91ba2469fd96ada6fd59"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 0.0025,
+    "timestamp_utc": "2026-09-20T13:57:57.195383+00:00",
+    "seed": 1026428776,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "total_tasks_audited": 17,
+    "supported_count": 4,
+    "weakened_count": 13,
+    "contradicted_count": 0,
+    "uncheckable_count": 0,
+    "supported_fraction_pct": 23.5,
+    "weakened_fraction_pct": 76.5,
+    "contradicted_fraction_pct": 0.0
+  },
+  "summary": "End-to-end adversarial audit of Chen et al. 2026 across 17 foundational tasks yields 4 SUPPORTED (23.5%), 13 WEAKENED (76.5%), and 0 CONTRADICTED (0.0%). Key findings include 100% data integrity and rapid hypervolume expansion (SUPPORTED), alongside surrogate failure in the soft regime (RMSE 12.7x tolerance), circular benchmarking, dumb space-filling baselines matching property hit rates via mechanical degeneracy (T13), pseudoreplication inflating cell biology false positive rates to 35-55%, 33-fold unconstrained rheological extrapolation, and elementary grid arithmetic errors (CONTRADICTED). All deliverables (findings, red team, slides, claims table) are fully generated and verified."
+}

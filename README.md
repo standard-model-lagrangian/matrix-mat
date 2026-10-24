@@ -1,17 +1,17 @@
-# Spheroid & Immunofluorescence Image Analysis Pipelines
+# matrix-mat: Spheroid & Immunofluorescence Image Analysis Pipelines
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch MPS/CUDA](https://img.shields.io/badge/PyTorch-MPS%20%7C%20CUDA%20%7C%20CPU-orange.svg)](https://pytorch.org/)
 [![Cellpose-SAM](https://img.shields.io/badge/Cellpose--SAM-cpsam__v2-green.svg)](https://www.cellpose.org/)
-[![Reproducibility](https://img.shields.io/badge/Reproducibility-Strict%20Provenance-brightgreen.svg)](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An end-to-end, deterministic, and fully auditable computer vision suite designed to quantify cancer spheroid morphology, volumetric growth kinetics, and 3D nuclear packing density across engineered biomaterial hydrogels.
+An end-to-end, deterministic image analysis suite designed to quantify cancer spheroid morphology, volumetric growth kinetics, and planar nuclear packing density across engineered biomaterial hydrogels.
 
 ---
 
 ## Architecture Overview
 
-The repository hosts two decoupled, publication-grade image analysis pipelines:
+The repository hosts two decoupled image analysis pipelines:
 
 ```
                                     ┌─────────────────────────────────────────────────────────────┐
@@ -28,9 +28,9 @@ The repository hosts two decoupled, publication-grade image analysis pipelines:
                                   ▼                                                                 ▼
                     • Multi-spheroid segmentation                                       • Cellpose-SAM nuclear seg
                     • Optical scale extraction (um)                                     • Rolling-ball background
-                    • Strict QC gating (Zero drops)                                     • Clump splitting & size gate
+                    • Multi-criteria QC gating                                          • Clump splitting & size gate
                     • Hungarian centroid pairing                                        • Border clearance exclusion
-                    • Biomass & hypertrophy metrics                                     • Nuclei density per mm³
+                    • Biomass & volume change kinetics                                  • Planar areal density (nuclei/mm²)
                     • Presentation Figures 1–6                                          • Cross-material comparisons
 ```
 
@@ -38,128 +38,94 @@ The repository hosts two decoupled, publication-grade image analysis pipelines:
 
 ## Documentation Roadmap
 
-For in-depth explanations tailored to specific roles, consult our documentation hub in `docs/`:
+For in-depth specifications, consult our documentation:
 
-| Guide | Description | Target Audience |
-| :--- | :--- | :--- |
-| **[Beginner's Guide](docs/BEGINNER_GUIDE.md)** | Zero-to-hero manual: what folders stuff goes into, line-by-line configuration parameter breakdown, running instructions, and output interpretation. | Students, wet-lab biologists, new users |
-| **[Agents & Maintainers](docs/AGENTS_AND_MAINTAINERS.md)** | Architecture, execution graphs, module data contracts, caching mechanisms, deduplication algorithms, and extension guidelines. | AI Agents, software engineers, bioinformaticians |
-| **[Reproducibility & Troubleshooting](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md)** | Preflight auditing, `run_metadata.json`, SHA-256 manifests, warnings dictionary, and bad scenario remediation recipes. | Quality auditors, computational biologists |
-| **[Scientific Visualization Guide](docs/VISUALIZATION_GUIDE.md)** | Gallery and scientific interpretation of Presentation Figures 1–6, IF biological plots, and statistical testing methodologies. | PIs, manuscript authors, presenters |
+| Guide | Description |
+| :--- | :--- |
+| **[Dataset & Data Structure](docs/DATA.md)** | Directory layouts, filename conventions, optical calibration, and data acquisition. |
+| **[Pipeline Validation](docs/VALIDATION.md)** | Ground-truth synthetic recoveries, manual count agreement, and backend comparisons. |
+| **[Beginner's Guide](docs/BEGINNER_GUIDE.md)** | Step-by-step tutorial, configuration breakdown, and result interpretation. |
+| **[Agents & Maintainers](docs/AGENTS_AND_MAINTAINERS.md)** | Architecture, data contracts, caching mechanisms, and engineering guidelines. |
+| **[Reproducibility & Troubleshooting](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md)** | Preflight auditing, `run_metadata.json`, SHA-256 manifests, and issue remediation. |
+| **[Scientific Visualization Guide](docs/VISUALIZATION_GUIDE.md)** | Presentation Figures 1–6 gallery, IF plots, and statistical annotations. |
 
 ---
 
 ## Quickstart Guide
 
-#### 1. Environment Activation
-```bash
-# Navigate to the repository root
-cd matrix-mat
+For a fresh clone:
 
-# Activate the virtual environment
+```bash
+# 1. Create and activate virtual environment
+uv venv
 source .venv/bin/activate
+
+# 2. Install package in editable mode with deep learning dependencies
+pip install -e .[dl]
+
+# 3. Download and verify pinned Cellpose-SAM model weights
+python tools/fetch_models.py
+
+# 4. Configure data root path
+export MATRIX_MAT_DATA_ROOT=data
+
+# 5. Brightfield preflight audit and run
+matrix-mat bf preflight
+matrix-mat bf run --config configs/spheroid_brightfield.yaml
+matrix-mat bf plots --output-dir output
+
+# 6. Immunofluorescence preflight audit and sweep
+matrix-mat if preflight
+matrix-mat if sweep --config configs/sweep.yaml
+matrix-mat if compare-prepost --runs runs/ --biological
 ```
 
-### 2. Brightfield Spheroid Volume Analysis Pipeline
+---
+
+## Unified CLI Reference (`matrix-mat`)
+
+The unified CLI provides dedicated subcommands for brightfield (`bf`) and immunofluorescence (`if`) analysis:
+
+### Brightfield Commands (`matrix-mat bf`)
 
 ```bash
-# Step 1: Run preflight integrity audit
-python run_pipeline.py --preflight-only
+# Preflight data and calibration integrity check
+matrix-mat bf preflight --config configs/spheroid_brightfield.yaml
 
-# Step 2: Run mathematical ground-truth smoke test
-python run_pipeline.py --smoke-test
+# Run full brightfield pipeline
+matrix-mat bf run --config configs/spheroid_brightfield.yaml --output-dir output
 
-# Step 3: Run analysis and generate all 6 publication presentation figures
-python run_pipeline.py --plots
+# Run on a sample of images for fast verification
+matrix-mat bf run --config configs/spheroid_brightfield.yaml --sample 10
+
+# Generate presentation figures from existing CSVs
+matrix-mat bf plots --output-dir output
 ```
 
-### 3. Immunofluorescence (IF) Nuclei Density Pipeline
+### Immunofluorescence Commands (`matrix-mat if`)
 
 ```bash
-# Step 1: Run preflight audit for channel pairing and GPU acceleration
-python -m spheroid_if_sweep preflight --data-dir "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
+# Preflight channel pairing and hardware acceleration check
+matrix-mat if preflight --config configs/sweep.yaml
 
-# Step 2: Run winning production configuration (Cellpose-SAM + Pre/Post Processing)
-python -m spheroid_if_sweep run --config configs/sweep.yaml
+# Execute parameter sweep across configurations
+matrix-mat if sweep --config configs/sweep.yaml --runs-dir runs
 
-# Step 3: Run Pre/Post Processing Ablation Comparison & Verdict
-python -m spheroid_if_sweep compare-prepost --runs runs/ --biological
+# Cross-run pre/post ablation comparison
+matrix-mat if compare-prepost --runs runs/ --biological
+
+# Biological figures comparison across materials
+matrix-mat if compare-biological --run-dir runs/104_PP11_full
 ```
 
 ---
 
-## CLI Command Quick Reference
+## Statistical Methods & Rigor
 
-### Brightfield Spheroid CLI (`run_pipeline.py` or `python -m spheroid_pipeline_v2`)
-
-| Flag / Option | Argument | Description | Default |
-| :--- | :--- | :--- | :--- |
-| `--config` | `<path>` | Path to YAML configuration file | `configs/spheroid_brightfield.yaml` |
-| `--preflight-only`| *None* | Run proactive input and optical scale audit and exit | `False` |
-| `--smoke-test` | *None* | Run synthetic ground-truth mathematical smoke test | `False` |
-| `--sample` | `<N>` | Run stratified $N$-sample test with programmatic sanity gates | `None` (Full) |
-| `--condition` | `<name>` | Filter dataset to specific hydrogel condition (e.g. `S34D30`, `Mat`) | `None` (All) |
-| `--full-dataset` | *None* | Process all images in Day 0 and Day 7 directories | `False` |
-| `--plots` | *None* | Re-generate all 6 presentation figures from existing CSVs | `False` |
-| `-o`, `--out`, `--output-dir` | `<path>` | Directory to write CSVs, figures, overlays, and reports | `output` |
-| `--pixel-size` | `<val>` | Override optical scale in $\mu\mathrm{m/pixel}$ | Auto (EVOS Tag 37510) |
-| `--no-cache` | *None* | Force recomputation without loading cached masks | `False` |
-
-### Immunofluorescence CLI (`python -m spheroid_if_sweep`)
-
-| Subcommand | Flags | Description |
-| :--- | :--- | :--- |
-| `sweep` | `--config <path> [--scope subset\|full] [--allow-unpaired]` | Executes multi-run parameter sweep or pre/post ablation. |
-| `compare-biological` | `--run-dir <path> [--output <path>]` | Generates cross-material nuclei density, clean-vs-all, and volume plots. |
-| `compare-prepost` | `--runs <dir> [--output <dir>]` | Evaluates 2×2 factorial ablation effects and robustness spread reduction. |
-| `compare` | `--runs <dir> [--output <dir>]` | Cross-run divergence audit across original hyperparameter sweeps. |
-
----
-
-## Directory & Configuration Structure
-
-```
-Material discovery/
-├── configs/
-│   ├── spheroid_brightfield.yaml     # Master Brightfield Config (exhaustively commented)
-│   ├── sweep.yaml                    # Master IF Hyperparameter Sweep Config
-│   ├── prepost_ablation.yaml         # 2x2 Factorial Pre/Post Ablation Config
-│   └── robustness_check.yaml         # Robustness Regression Config
-├── config.yaml                       # Root alias to configs/spheroid_brightfield.yaml
-│
-├── Experimental data /Chuling cells/ # Raw experimental images (Read-Only)
-│   ├── Spheroid Day0 260805/         # Day 0 Brightfield TIFFs
-│   ├── Spheroid D7 260812/           # Day 7 Brightfield TIFFs
-│   └── spheroids staining:IF /       # IF confocal channels (_ch00, _ch02)
-│
-├── output/                           # Primary Brightfield Outputs
-│   ├── manifest.csv                  # Complete input audit with SHA-256 hashes
-│   ├── run_metadata.json             # Execution environment provenance
-│   ├── objects.csv                   # Per-spheroid morphology and QC flags
-│   ├── pairs.csv                     # Matched spheroid pairs and volume fold changes
-│   ├── well_growth_comparison.csv    # Well-replicate pooled biomass and proliferation
-│   ├── condition_summary.csv         # Population stats, bootstrap CIs, permutation p-values
-│   ├── report.md / report.html       # Executive report and interactive dashboard
-│   ├── overlays/                     # Color-coded supervision PNGs
-│   ├── contact_sheets/               # Condition montage grids
-│   └── figures/                      # Publication Figures 1–6 (PNG + vector PDF)
-│
-└── runs/                             # IF Sweep & Ablation Outputs
-    ├── 104_PP11_full/                # Production winning IF run
-    └── comparison_prepost/           # Ablation audit and robustness reports
-```
-
----
-
-## Scientific Rigor & Provenance
-
-- **Quality Control**: Every object is explicitly classified as `PASS`, `REVIEW`, or `FAIL`. No data is ever silently dropped.
-- **Statistical Testing**:
-  - Non-parametric **2,000-iteration bootstrap** 95% Confidence Intervals on median fold change.
-  - Non-parametric **10,000-iteration permutation tests** comparing hydrogels against control (`Mat`).
-  - One-tailed **Wilcoxon signed-rank tests** evaluating well-replicate growth against $H_0: \text{FC}=1.0$.
-  - Two-sided **Mann-Whitney U tests** for cross-material IF nuclear density differences.
-- **Hardware Acceleration**: Automatically detects and leverages Apple Silicon MPS (Metal) on Mac M-series or CUDA on Linux/Windows, with seamless CPU fallback.
-- **Audit Logging**: Every model fallback, plausibility rejection, and parameter tuning event is appended chronologically to `DECISIONS.md`.
-
-For troubleshooting or detailed parameter specifications, please refer to the **[Reproducibility & Troubleshooting Guide](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md)**.
+- **Unit of Analysis**: Formal statistical inference is performed at the **biological unit level (gel/well)** rather than the spheroid level to prevent pseudo-replication. Spheroid-level measurements are reported as descriptive population statistics.
+- **Hierarchical Resampling**: Confidence intervals for median fold changes are computed using a two-stage hierarchical bootstrap (resampling gels, then spheroids within gels).
+- **Cluster Permutation Testing**: Differences between hydrogel conditions and the control condition (`Mat`) are tested using exact cluster label permutations for small sample sizes, with Holm-Bonferroni multiplicity correction.
+- **Paired Growth Testing**: Volume fold changes between Day 0 and Day 7 for matched spheroids are evaluated using two-sided Wilcoxon signed-rank tests.
+- **Known Limitations**:
+  - Spherical volumes are estimated from 2D cross-sectional area: $V = \frac{\pi}{6} d_{\text{eq}}^3$. This assumes spherical geometry.
+  - IF nuclear density readouts reflect single-plane confocal optical sections and are reported as planar areal density ($\text{nuclei/mm}^2$ of spheroid cross-section), not true 3D volumetric packing. True volumetric density requires 3D confocal z-stacks.

@@ -1,0 +1,89 @@
+{
+  "task_id": "T11",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 1, Section 2.1, Section 5 (High-Dimensional Active Learning Space Exploration)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "The 168 experimental formulations comprehensively explore the 5D parameter design space under the reported active learning campaigns.",
+    "primary_metric": "5D Convex Hull volume as percentage of nominal box and percentage of physically feasible formulation domain.",
+    "decision_rule": "SUPPORTED if convex hull volume >= 20% of feasible parameter space; WEAKENED if convex hull volume < 10% of feasible space; CONTRADICTED if convex hull volume < 1% of feasible space.",
+    "parameters": {
+      "n_dimensions": 5,
+      "monte_carlo_samples": 50000,
+      "nominal_bounds": [
+        [
+          0.0,
+          600.0
+        ],
+        [
+          0.0,
+          6.0
+        ],
+        [
+          0.0,
+          6.0
+        ],
+        [
+          0.0,
+          6.0
+        ],
+        [
+          0.0,
+          0.2
+        ]
+      ]
+    }
+  },
+  "sensitivity_ranges": {
+    "subsets_evaluated": [
+      "100_closed_loop",
+      "68_pareto",
+      "168_total"
+    ],
+    "mc_sampling_density": [
+      10000,
+      50000
+    ]
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_volume_hull.pdf",
+        "sha256": "f7b544e1c742d4a2b99617a3986783e0952d98948165150292107fb8babb756e"
+      },
+      {
+        "path": "report/figures/fig_volume_hull.png",
+        "sha256": "260510be16cf0a78f2e7a8c87950d1a4b201a9cd99e4305064ccd78baa460d2f"
+      }
+    ],
+    "script": {
+      "path": "src/audit/volume.py",
+      "sha256": "5e183b608bdbf74b84503ffca82ce3c87aeb9584b9f76529cf89622645b2f5f3"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 0.3985,
+    "timestamp_utc": "2026-09-19T09:14:26.001849+00:00",
+    "seed": 1530637490,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "convex_hull_volume_168_pct_of_box": 2.815,
+    "convex_hull_volume_100_pct_of_box": 0.436,
+    "convex_hull_volume_68_pareto_pct_of_box": 1.511,
+    "feasible_parameter_volume_pct_of_box": 45.83,
+    "explored_fraction_of_feasible_volume_pct": 6.14,
+    "unexplored_fraction_of_feasible_volume_pct": 93.86,
+    "nearest_neighbor_mean_distance_unit": 0.117,
+    "largest_empty_hyperball_radius_unit": 0.955,
+    "mean_distance_to_nearest_point_in_feasible_space": 0.408
+  },
+  "summary": "Geometric audit reveals that the 168 formulations explored only 2.815% of the nominal 5D box and 6.14% of the physically feasible domain, leaving 93.9% of the feasible formulation space completely untouched. The initial 100 closed-loop points occupied merely 0.436% of the box due to heavy spatial clustering along narrow rays. Consequently, active learning did not navigate the global 5D space but rather localized intensely within a tiny corner, explaining why simple response surface methods perform comparably."
+}

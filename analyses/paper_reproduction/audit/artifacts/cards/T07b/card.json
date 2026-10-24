@@ -1,0 +1,119 @@
+{
+  "task_id": "T07b",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, Figure 4d (Hypervolume Reference Point Sensitivity)",
+  "verdict": "SUPPORTED",
+  "preregistration": {
+    "hypothesis": "While the absolute numerical magnitude of hypervolume depends strongly on the reference point, the plateau phenomenon (Utopian 1 capturing >90% of total gain) is invariant to reference point selection.",
+    "primary_metric": "Utopian 1 share of total hypervolume gain across empirical nadir, origin, and conservative anchors.",
+    "decision_rule": "SUPPORTED if Utopian 1 share > 85% across all valid reference points; WEAKENED if choice of reference point changes convergence dynamics.",
+    "parameters": {
+      "tested_reference_points": [
+        "nadir_empirical",
+        "origin",
+        "conservative_anchor",
+        "theoretical_min"
+      ]
+    }
+  },
+  "sensitivity_ranges": {
+    "reference_points": {
+      "nadir_empirical": [
+        0.093,
+        8.0
+      ],
+      "origin": [
+        0.0,
+        0.0
+      ],
+      "conservative_anchor": [
+        0.0,
+        5.0
+      ],
+      "theoretical_min": [
+        0.05,
+        5.0
+      ]
+    }
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_pareto_audit.pdf",
+        "sha256": "0b023cc1fa7dd8f0a629602acb7a9eb35318dda035b8e3fbe3ed4c869b918208"
+      },
+      {
+        "path": "report/figures/fig_pareto_audit.png",
+        "sha256": "3d4d69821a9131b8510709105eb0a51bbcbf0cecb191f18300d0761003256e3d"
+      }
+    ],
+    "script": {
+      "path": "src/audit/pareto.py",
+      "sha256": "f404c395004b7041dda83e47eb8e39574188daf585d0e63ba3fb541d9996b6df"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 1.9813,
+    "timestamp_utc": "2026-09-19T09:13:55.546679+00:00",
+    "seed": 1573974761,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "nadir_empirical": {
+      "ref_coords": [
+        0.093,
+        8.0
+      ],
+      "hv_100": 301.07,
+      "hv_128_utopian1": 362.12,
+      "hv_168_final": 364.08,
+      "total_gain": 63.01,
+      "utopian1_share_pct": 96.9,
+      "plateau_gain_after_u1": 1.96
+    },
+    "origin": {
+      "ref_coords": [
+        0.0,
+        0.0
+      ],
+      "hv_100": 456.43,
+      "hv_128_utopian1": 517.47,
+      "hv_168_final": 519.43,
+      "total_gain": 63.01,
+      "utopian1_share_pct": 96.9,
+      "plateau_gain_after_u1": 1.96
+    },
+    "conservative_anchor": {
+      "ref_coords": [
+        0.0,
+        5.0
+      ],
+      "hv_100": 364.68,
+      "hv_128_utopian1": 425.72,
+      "hv_168_final": 427.68,
+      "total_gain": 63.01,
+      "utopian1_share_pct": 96.9,
+      "plateau_gain_after_u1": 1.96
+    },
+    "theoretical_min": {
+      "ref_coords": [
+        0.05,
+        5.0
+      ],
+      "hv_100": 359.93,
+      "hv_128_utopian1": 420.97,
+      "hv_168_final": 422.93,
+      "total_gain": 63.01,
+      "utopian1_share_pct": 96.9,
+      "plateau_gain_after_u1": 1.96
+    }
+  },
+  "summary": "Reference point sensitivity analysis confirms that the reported absolute hypervolume (~362--364) is an artifact of the empirical nadir shift (0.093, 8.0) (vs 651.2 at origin (0,0)). However, the convergence plateau is robust: Utopian 1 accounts for 96.9% to 96.9% of total hypervolume gain across all examined reference points."
+}

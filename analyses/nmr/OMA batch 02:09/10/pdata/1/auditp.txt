@@ -1,0 +1,23 @@
+##TITLE= Audit trail, TopSpin 3.8.0
+##JCAMPDX= 5.01
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmrsu
+$$ /opt/topspin/nomad/data/adc/nmr/2609141149-3-11-fas324/10/pdata/1/auditp.txt
+##AUDIT TRAIL=  $$ (NUMBER, WHEN, WHO, WHERE, PROCESS, VERSION, WHAT)
+(   1,<2026-09-14 12:10:55.890 +0100>,<nmrsu>,<nanob>,<proc1d>,<TopSpin 3.8.0>,
+      <Start of raw data processing
+       ef LB = 0 FT_mod = 6 PKNL = 1 SI = 64K 
+       data hash MD5: 64K
+       62 88 8E 59 1D B0 14 31 20 54 57 13 38 FE 2E B9>)
+(   2,<2026-09-14 12:10:56.221 +0100>,<nmrsu>,<nanob>,<proc1d>,<TopSpin 3.8.0>,
+      <apk 
+       data hash MD5: 64K
+       53 5C 5E EB 01 04 55 DD 6B DE 44 9D 0B 39 C9 C0>)
+(   3,<2026-09-14 12:10:56.234 +0100>,<nmrsu>,<nanob>,<proc1d>,<TopSpin 3.8.0>,
+      <abs ABSG = 5 
+       data hash MD5: 64K
+       84 F6 A6 1B 6E 24 B8 4B ED 26 42 12 90 01 C6 62>)
+##END=
+
+$$ hash MD5
+$$ 82 DD 6D 88 77 DC 8F FA 44 A7 61 0D 13 A3 16 9B

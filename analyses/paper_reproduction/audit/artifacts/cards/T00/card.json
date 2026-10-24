@@ -1,0 +1,83 @@
+{
+  "task_id": "T00",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 5, SI Section 1, Table S2, Table S3, Table S4",
+  "verdict": "SUPPORTED",
+  "preregistration": {
+    "hypothesis": "Raw experimental data files (hydrogel_analysis.csv, hydrogel_bo.csv) preserve exactly 168 experimental conditions across 42 batches and 43 prior conditions with exact accounting and zero floating-point divergence.",
+    "primary_metric": "Dataset reconciliation max absolute difference == 0.0 and canonical row counts match ground truth.",
+    "decision_rule": "SUPPORTED if max absolute difference between hydrogel_bo.loc[44:211] and hydrogel_analysis is 0.0, canonical row counts are 168 (points), 43 (prior), and 7 (optima), and SHA-256 manifest is verified.",
+    "parameters": {
+      "target_tolerance_pct": 10.0
+    }
+  },
+  "sensitivity_ranges": {
+    "target_tolerance_pct": [
+      5.0,
+      10.0,
+      15.0
+    ],
+    "prior_rows": 43,
+    "closed_loop_batches": 25,
+    "pareto_batches": 17
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "/Users/frederick/Visual Studio /Material discovery/Hydrogel_BO/hydrogel_analysis.csv",
+        "sha256": "42143b43594d6eedf65a8471b486054594746b03e122ab63fd0b65d408b317e0"
+      },
+      {
+        "path": "/Users/frederick/Visual Studio /Material discovery/Hydrogel_BO/hydrogel_bo.csv",
+        "sha256": "0642defb15b1796920b5a293d85341ac38e0dd1f8cbfedcccb564157a0622d5f"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      },
+      {
+        "path": "artifacts/canonical/prior.parquet",
+        "sha256": "ddcf4910feac2607b95528cf0053a707d862190f8308d848cd2f76d9e8fe20d1"
+      },
+      {
+        "path": "artifacts/canonical/optima.parquet",
+        "sha256": "5e6cf98cafdff8e94ab8066f87dc6737e266419c10acbe3064adb1e60d6696ab"
+      },
+      {
+        "path": "artifacts/canonical/paper_claims.yaml",
+        "sha256": "b233786ea18f91dc282c2729557fb15da33a607b6a1772e6f5658d730aefdb58"
+      },
+      {
+        "path": "artifacts/canonical/manifest.sha256",
+        "sha256": "becff2b7b383471d5cf1417786fb695ed3d8cced9910a1e0854329f2f300b949"
+      }
+    ],
+    "script": {
+      "path": "src/data/ingest.py",
+      "sha256": "70e3d196cf732725d06928e4f235954baed1a4f2b3e4f8cf75f00cbb30ccf7ee"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 0.0248,
+    "timestamp_utc": "2026-09-19T09:08:54.159849+00:00",
+    "seed": 847815772,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "raw_analysis_rows": 168,
+    "raw_bo_rows": 211,
+    "canonical_points_rows": 168,
+    "canonical_prior_rows": 43,
+    "canonical_optima_rows": 7,
+    "closed_loop_batches": 25,
+    "closed_loop_points": 100,
+    "pareto_batches": 17,
+    "pareto_mapping_points": 68,
+    "max_abs_diff_bo_analysis": 0.0,
+    "steward_signoff": true
+  },
+  "summary": "Canonical ingestion completed with exact row accounting reconciliation (168 experimental points = 100 closed-loop across 25 batches + 68 Pareto mapping across 17 batches; 43 prior rows with missing index 2). All 7 optimal hydrogels verified and Gate 1 sign-off issued."
+}

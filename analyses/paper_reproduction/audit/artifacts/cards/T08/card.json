@@ -1,0 +1,122 @@
+{
+  "task_id": "T08",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, SI Section 1, Table S3 (Two-Mode Maxwell Viscoelasticity & Half-Times)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Viscoelastic relaxation half-times t_1/2 up to 3,267 s can be reliably identified from a 100 s stress relaxation hold, and sigma_100 serves as a sufficient scalar proxy for relaxation kinetics.",
+    "primary_metric": "Maximum extrapolation ratio (t_half / t_obs_max), 90% confidence interval width on t_1/2 under 2% instrument noise, and kinetic divergence between identical-sigma_100 profiles.",
+    "decision_rule": "SUPPORTED if max extrapolation ratio <= 3.0 and t_1/2 90% CI width <= 20% of nominal value; WEAKENED if extrapolation ratio > 5.0 or t_1/2 90% CI width > 50%; CONTRADICTED if model is mathematically collinear / unidentifiable.",
+    "parameters": {
+      "observation_hold_time_s": 100.0,
+      "noise_cv": 0.02,
+      "n_simulations": 500
+    }
+  },
+  "sensitivity_ranges": {
+    "extrapolation_ratios_by_candidate": {
+      "HealthySkin_I4_2": 5.48,
+      "HealthySkin_I4_4": 5.83,
+      "ScarredSkin_I6_4": 10.15,
+      "ScarredSkin_I7_3": 14.46,
+      "SoftTumor_I3_3": 1.2,
+      "SoftTumor_I4_1": 1.19,
+      "StiffTumor_I1_4": 32.67
+    },
+    "noise_levels_tested": [
+      0.01,
+      0.02,
+      0.05
+    ]
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/paper_claims.yaml",
+        "sha256": "b233786ea18f91dc282c2729557fb15da33a607b6a1772e6f5658d730aefdb58"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_rheology_audit.pdf",
+        "sha256": "a6f9326f5220bbba9d747e0387f8fde0bea320f673c33d56562ef6796596e50d"
+      },
+      {
+        "path": "report/figures/fig_rheology_audit.png",
+        "sha256": "96a36257c94d7f5ee9d3c55d4b279efa4d05796a2e3c3ebc4485b51b68746f0c"
+      }
+    ],
+    "script": {
+      "path": "src/audit/rheology.py",
+      "sha256": "c73d4efca2c81800aa9c4d69a24f2f9c7c1e1ec0e02cf282517e851d6fd00ac8"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 1.689,
+    "timestamp_utc": "2026-09-19T09:16:25.652981+00:00",
+    "seed": 668166719,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "observation_window_seconds": [
+      0.1,
+      100.0
+    ],
+    "max_extrapolation_candidate": "StiffTumor_I1_4",
+    "max_extrapolation_ratio": 32.67,
+    "all_candidate_extrapolation_ratios": {
+      "HealthySkin_I4_2": {
+        "tau_1_s": 1.1,
+        "tau_2_s": 164.0,
+        "t_half_claimed_s": 548.0,
+        "extrapolation_ratio": 5.48
+      },
+      "HealthySkin_I4_4": {
+        "tau_1_s": 1.3,
+        "tau_2_s": 168.0,
+        "t_half_claimed_s": 583.0,
+        "extrapolation_ratio": 5.83
+      },
+      "ScarredSkin_I6_4": {
+        "tau_1_s": 1.6,
+        "tau_2_s": 253.0,
+        "t_half_claimed_s": 1015.0,
+        "extrapolation_ratio": 10.15
+      },
+      "ScarredSkin_I7_3": {
+        "tau_1_s": 0.7,
+        "tau_2_s": 222.0,
+        "t_half_claimed_s": 1446.0,
+        "extrapolation_ratio": 14.46
+      },
+      "SoftTumor_I3_3": {
+        "tau_1_s": 0.6,
+        "tau_2_s": 44.3,
+        "t_half_claimed_s": 120.0,
+        "extrapolation_ratio": 1.2
+      },
+      "SoftTumor_I4_1": {
+        "tau_1_s": 0.8,
+        "tau_2_s": 43.8,
+        "t_half_claimed_s": 119.0,
+        "extrapolation_ratio": 1.19
+      },
+      "StiffTumor_I1_4": {
+        "tau_1_s": 0.8,
+        "tau_2_s": 294.0,
+        "t_half_claimed_s": 3267.0,
+        "extrapolation_ratio": 32.67
+      }
+    },
+    "stiff_tumor_nominal_t_half_s": 3267.0,
+    "stiff_tumor_t_half_median_s": 596.2,
+    "stiff_tumor_t_half_90pct_ci": [
+      384.2,
+      10000.0
+    ],
+    "stiff_tumor_t_half_iqr_s": 9575.7,
+    "sigma_100_profile_divergence_area": 0.109
+  },
+  "summary": "Viscoelastic rheology audit severely weakens the claimed relaxation half-times. For Stiff Tumor (I1-4), the paper claims t_1/2 = 3,267 s extrapolated from an experimental hold of only 100 s -- a 32.7-fold unmeasured time extrapolation. Numerical sensitivity analysis shows that under realistic 2% rheometer noise, the 90% confidence interval for t_1/2 spans [384 s, 10000 s] (IQR = 9576 s), demonstrating complete parameter unidentifiability. Furthermore, the single-number sigma_100 proxy conceals dramatic kinetic variations: formulations with identical sigma_100 can exhibit early vs delayed relaxation pathways."
+}

@@ -1,0 +1,150 @@
+metadata:
+  title: Active Learning-Accelerated Discovery of Fibrous Hydrogels with Tissue-Mimetic
+    Viscoelasticity
+  authors: Chen et al.
+  journal: Adv. Funct. Mater. 2026, 36:e75639
+  doi: 10.1002/adfm.202575639
+discretization_bounds:
+  parameter_space:
+    exposure_time:
+      min: 0.0
+      max: 600.0
+      step: 60.0
+      levels: 11
+      unit: s
+    gelma_l:
+      min: 0.0
+      max: 6.0
+      step: 1.0
+      levels: 7
+      unit: wt%
+    gelma_h:
+      min: 0.0
+      max: 6.0
+      step: 1.0
+      levels: 7
+      unit: wt%
+    acnc:
+      min: 0.0
+      max: 6.0
+      step: 1.0
+      levels: 7
+      unit: wt%
+    lap:
+      min: 0.0
+      max: 0.2
+      step: 0.05
+      levels: 5
+      unit: wt%
+  claimed_grid_size: 6230
+  true_cartesian_grid_size: 18865
+  arithmetic_discrepancy_factor: 3.0281
+table_1_targets:
+  HealthySkin:
+    modulus_kpa: 1.5
+    tolerance_modulus_kpa: 0.15
+    stress_relaxation_pct: 25.0
+    tolerance_stress_relaxation_pct: 2.5
+    reported_iterations_to_hit: 4
+  ScarredSkin:
+    modulus_kpa: 12.0
+    tolerance_modulus_kpa: 1.2
+    stress_relaxation_pct: 20.0
+    tolerance_stress_relaxation_pct: 2.0
+    reported_iterations_to_hit: 6
+  SoftTumor:
+    modulus_kpa: 1.3
+    tolerance_modulus_kpa: 0.13
+    stress_relaxation_pct: 50.0
+    tolerance_stress_relaxation_pct: 5.0
+    reported_iterations_to_hit: 3
+  StiffTumor:
+    modulus_kpa: 16.0
+    tolerance_modulus_kpa: 1.6
+    stress_relaxation_pct: null
+    tolerance_stress_relaxation_pct: 10000000000.0
+    objective_mode: maximize_stress_relaxation
+    reported_iterations_to_hit: 1
+surrogate_performance_table_s6:
+  gradient_boosting:
+    modulus_r2: 0.9
+    stress_relaxation_r2: 0.91
+  svr:
+    modulus_r2: 0.88
+    stress_relaxation_r2: 0.92
+  gaussian_process:
+    modulus_r2: 0.79
+    stress_relaxation_r2: 0.79
+surrogate_performance_narrative_claim:
+  gaussian_process:
+    modulus_r2: 0.82
+    modulus_rmse: 1.78
+    modulus_mae: 1.24
+    stress_relaxation_r2: 0.82
+    stress_relaxation_rmse: 9.65
+    stress_relaxation_mae: 6.36
+viscoelastic_model_si:
+  equation: G(t) = G_1 * exp(-t / tau_1) + G_2 * exp(-t / tau_2) + G_inf
+  observation_window_s:
+  - 0.1
+  - 100.0
+  extrapolated_half_times:
+    HealthySkin_I4_2:
+      tau_1: 1.1
+      tau_2: 164.0
+      t_half: 548.0
+    HealthySkin_I4_4:
+      tau_1: 1.3
+      tau_2: 168.0
+      t_half: 583.0
+    ScarredSkin_I6_4:
+      tau_1: 1.6
+      tau_2: 253.0
+      t_half: 1015.0
+    ScarredSkin_I7_3:
+      tau_1: 0.7
+      tau_2: 222.0
+      t_half: 1446.0
+    SoftTumor_I3_3:
+      tau_1: 0.6
+      tau_2: 44.3
+      t_half: 120.0
+    SoftTumor_I4_1:
+      tau_1: 0.8
+      tau_2: 43.8
+      t_half: 119.0
+    StiffTumor_I1_4:
+      tau_1: 0.8
+      tau_2: 294.0
+      t_half: 3267.0
+accounting:
+  prior_dataset_observed_rows: 43
+  prior_dataset_claimed_rows: 44
+  missing_prior_index: 2
+  closed_loop_batches: 25
+  closed_loop_points: 100
+  pareto_mapping_batches: 17
+  pareto_mapping_points: 68
+  total_experimental_points: 168
+  total_bo_rows: 211
+section_5_experimental_constants:
+  photocrosslinking:
+    uv_wavelength_nm: 400
+    uv_intensity_mw_cm2: 30.0
+    pre_gelation_incubation_hours: 2.0
+    pre_gelation_temp_c: 37.0
+  compression_test:
+    instrument: Mach-1 Mechanical Tester (Biomomentum Inc.)
+    geometry: cylinder height 5.00 mm, diameter 9.83 mm
+    strain_rate_mm_s: 0.1
+    strain_level_pct: 20.0
+    modulus_fit_strain_pct:
+    - 10.0
+    - 15.0
+  stress_relaxation_test:
+    instrument: DHR-1 Rheometer (TA Instruments)
+    geometry: 40 mm parallel plates
+    evaporation_blocker: mineral oil
+    step_strain_pct: 5.0
+    step_strain_duration_s: 0.1
+    hold_time_s: 100.0

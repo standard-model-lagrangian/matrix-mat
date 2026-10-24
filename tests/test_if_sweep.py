@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
+import pytest
 import warnings
 
 # Filter skimage grayreconstruct deprecation in NumPy 2.5
@@ -94,19 +95,16 @@ class TestSpheroidIFSweep(unittest.TestCase):
 
     def test_deduplicate_masks(self):
         """Test that overlapping mask proposals with IoU > 0.50 are deduplicated."""
-        masks = np.zeros((100, 100), dtype=np.int32)
         # Mask 1: 20x20 box (area 400)
-        masks[10:30, 10:30] = 1
+        mask1 = np.zeros((100, 100), dtype=bool)
+        mask1[10:30, 10:30] = True
         # Mask 2: overlapping box (12:30, 12:30) (area 324, overlap 324, union 400 -> IoU = 324/400 = 0.81)
         mask2 = np.zeros((100, 100), dtype=bool)
         mask2[12:30, 12:30] = True
 
-        combined = masks.copy()
-        combined[mask2] = 2
-
-        dedup, n_removed = deduplicate_masks(combined, iou_threshold=0.50)
-        self.assertGreaterEqual(n_removed, 0)
-        self.assertGreaterEqual(int(dedup.max()), 1)
+        dedup, n_removed = deduplicate_masks([mask1, mask2], iou_threshold=0.50)
+        self.assertEqual(n_removed, 1)
+        self.assertEqual(int(dedup.max()), 1)
 
     def test_qc_flags_unit(self):
         """Test unit behavior of QC artifact flags."""
@@ -270,13 +268,13 @@ class TestSpheroidIFSweep(unittest.TestCase):
         from skimage import measure
         h, w = 150, 150
         px = 0.505049
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         # Baseline background floor + gradient
         y, x = np.mgrid[:h, :w]
         grad = (y / float(h) * 50.0).astype(np.float32) + 25.0
         # Add high-intensity autofluorescence speckle noise
-        speckles = (np.random.rand(h, w) > 0.985).astype(np.float32) * 90.0
+        speckles = (rng.random((h, w)) > 0.985).astype(np.float32) * 90.0
         noisy_img = np.clip(grad + speckles, 0, 255).astype(np.uint8)
 
         # Place a real nucleus
@@ -412,13 +410,14 @@ class TestSpheroidIFSweep(unittest.TestCase):
         self.assertFalse(res_by_id["s_img1"].flag_density_outlier, "S46D10 has n < 3; IQR should be skipped")
         self.assertFalse(res_by_id["s_img2"].flag_density_outlier, "S46D10 has n < 3; IQR should be skipped")
 
+    @pytest.mark.dl
     def test_synthetic_blob_segmentation(self):
         """Sanity check: Cellpose-SAM recovers synthetic nuclei blobs within reasonable tolerance."""
         model_path = Path("models/cpsam_v2")
         if not model_path.exists():
             self.skipTest("CPSAM model weights not available locally")
 
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         img = np.zeros((256, 256), dtype=np.uint8)
         centers = [(64, 64), (64, 192), (192, 64), (192, 192)]
         radius = 15.0
@@ -430,7 +429,7 @@ class TestSpheroidIFSweep(unittest.TestCase):
             img = np.maximum(img, blob.astype(np.uint8))
 
         # Add simulated sensor noise floor
-        img = np.clip(img + np.random.randint(10, 25, (256, 256), dtype=np.uint8), 0, 255).astype(np.uint8)
+        img = np.clip(img + rng.integers(10, 25, (256, 256), dtype=np.uint8), 0, 255).astype(np.uint8)
 
         engine = CPSAMEngine(model_path=str(model_path), random_seed=42)
         masks, mode = engine.segment_image(

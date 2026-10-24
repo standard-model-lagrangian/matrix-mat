@@ -1,0 +1,129 @@
+{
+  "task_id": "T09",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Figures 2f, 2g, 3e, S6, S7 (Cell Phenotype Statistics & Pseudoreplication)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Cell biology significance claims (p < 0.001, p < 0.01) reported in Figures 2 and 3 remain statistically valid when modeled with hierarchical mixed-effects models accounting for clustering within N=3 biological hydrogel replicates.",
+    "primary_metric": "Type I error rate under ICC in [0.05, 0.35] and cluster-adjusted p-values for cell spreading / morphology assays.",
+    "decision_rule": "SUPPORTED if Type I error rate remains <= 7.5% and cluster-adjusted p-values remain < 0.05; WEAKENED if Type I error rate inflates >= 20% or cluster-adjusted p-values exceed 0.05; CONTRADICTED if biological replicate variance accounts for >50% of total variance.",
+    "parameters": {
+      "n_biological_replicates": 3,
+      "m_cells_per_replicate": 40,
+      "n_simulations": 2000,
+      "icc_sweep": [
+        0.0,
+        0.05,
+        0.1,
+        0.2,
+        0.35,
+        0.5
+      ]
+    }
+  },
+  "sensitivity_ranges": {
+    "tested_icc_levels": [
+      0.0,
+      0.05,
+      0.1,
+      0.2,
+      0.35,
+      0.5
+    ],
+    "false_positive_rates_pooled": {
+      "0.0": 0.059,
+      "0.05": 0.246,
+      "0.1": 0.363,
+      "0.2": 0.547,
+      "0.35": 0.632,
+      "0.5": 0.694
+    },
+    "false_positive_rates_hierarchical": {
+      "0.0": 0.05,
+      "0.05": 0.051,
+      "0.1": 0.049,
+      "0.2": 0.052,
+      "0.35": 0.053,
+      "0.5": 0.053
+    },
+    "fig_2f_case_study": {
+      "ICC_0.0": {
+        "vif": 1.0,
+        "df_nominal": 268,
+        "p_nominal": "< 1e-10",
+        "df_cluster": 4,
+        "p_cluster_corrected": 4e-05,
+        "t_critical_nominal_005": 1.969,
+        "t_critical_cluster_005": 2.776
+      },
+      "ICC_0.05": {
+        "vif": 3.2,
+        "df_nominal": 268,
+        "p_nominal": "< 1e-10",
+        "df_cluster": 4,
+        "p_cluster_corrected": 0.00042,
+        "t_critical_nominal_005": 1.969,
+        "t_critical_cluster_005": 2.776
+      },
+      "ICC_0.15": {
+        "vif": 7.6,
+        "df_nominal": 268,
+        "p_nominal": "< 1e-10",
+        "df_cluster": 4,
+        "p_cluster_corrected": 0.00219,
+        "t_critical_nominal_005": 1.969,
+        "t_critical_cluster_005": 2.776
+      },
+      "ICC_0.3": {
+        "vif": 14.2,
+        "df_nominal": 268,
+        "p_nominal": "< 1e-10",
+        "df_cluster": 4,
+        "p_cluster_corrected": 0.00688,
+        "t_critical_nominal_005": 1.969,
+        "t_critical_cluster_005": 2.776
+      }
+    }
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/paper_claims.yaml",
+        "sha256": "b233786ea18f91dc282c2729557fb15da33a607b6a1772e6f5658d730aefdb58"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_biostats_pseudoreplication.pdf",
+        "sha256": "9b12125bb5cdbefcc03aabb40ab85419c4d84d30517c1d9e1a949d470965e9ec"
+      },
+      {
+        "path": "report/figures/fig_biostats_pseudoreplication.png",
+        "sha256": "098b187a4b58b76f005abb89efcaa91cc003f2110b41a808b096dc110cee2469"
+      }
+    ],
+    "script": {
+      "path": "src/audit/biostats.py",
+      "sha256": "7435a0e117f6b6c977c4d6f56a393dfa09b47965b392873199747b1a783e8477"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 5.7175,
+    "timestamp_utc": "2026-09-19T09:18:23.069744+00:00",
+    "seed": 2122623603,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "nominal_alpha": 0.05,
+    "false_positive_rate_at_icc_010_pct": 36.3,
+    "false_positive_rate_at_icc_020_pct": 54.7,
+    "false_positive_rate_at_icc_035_pct": 63.2,
+    "degrees_of_freedom_claimed_pooled": 238,
+    "degrees_of_freedom_true_biological": 4,
+    "t_critical_ratio_df4_vs_df238": 1.409,
+    "case_study_p_nominal": "< 1e-10",
+    "case_study_p_cluster_corrected_icc_015": 0.00219
+  },
+  "summary": "Biostatistical audit reveals severe nested pseudoreplication across Figures 2f, 2g, 3e, S6, and S7. The authors pooled N=32--240 individual cells across N=3 hydrogel replicates as independent observations. Monte Carlo simulations demonstrate that with realistic biological clustering (ICC = 0.10--0.20), the true False Positive Rate inflates from 5% to 36.3%--54.7%. True degrees of freedom shrink from df=238 to df=4, jumping the t-critical threshold by 40.9% and substantially inflating nominal p-values under cluster-robust hierarchical modeling."
+}

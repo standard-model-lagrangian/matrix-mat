@@ -1,0 +1,1177 @@
+Advanced Functional Materials
+www.afm-journal.de
+
+RESEARCH ARTICLE
+
+Active Learning-Accelerated Discovery of Fibrous Hydrogels
+with Tissue-Mimetic Viscoelasticity
+Zhengkun Chen1
+Zheyuan Miao1
+Gary Tom1,2
+Austin H. Cheng1,2
+Tianyi Wu1
+Dianoosh Kalhori3
+Boris Hinz4,5
+Milad Abolhasani6
+Eugenia Kumacheva1,3,9
+
+Elizaveta Gusarova1
+Benjamen Zondag1
+Alán Aspuru-Guzik1,2,7,8,9
+
+1
+Department of Chemistry, University of Toronto, Toronto, Ontario, Canada 2 Vector Institute for Artificial Intelligence, Toronto, Ontario, Canada 3 The
+Institute of Biomedical Engineering, University of Toronto, Toronto, Ontario, Canada 4 Laboratory of Tissue Repair and Regeneration, Keenan Research Centre
+for Biomedical Science of the St. Michael’s Hospital, Toronto, Ontario, Canada 5 Faculty of Dentistry, University of Toronto, Toronto, Ontario, Canada
+6
+Department of Chemical and Biomolecular Engineering, North Carolina State University, Raleigh, North Carolina, USA 7 Department of Computer Science,
+University of Toronto, Toronto, Ontario, Canada 8 Department of Materials Science and Engineering, University of Toronto, Toronto, Ontario, Canada
+9
+Department of Chemical Engineering and Applied Chemistry, University of Toronto, Toronto, Ontario, Canada
+
+Correspondence: Eugenia Kumacheva (eugenia.kumacheva@utoronto.ca)
+Received: 11 December 2025
+
+Revised: 8 April 2026
+
+Accepted: 13 April 2026
+
+Keywords: cancer | fibrosis | hydrogels | machine learning | tissue scaffolds | viscoelasticity
+
+ABSTRACT
+The extracellular matrix (ECM) exhibits tissue-specific viscoelasticity with a unique combination of elasticity and viscosity.
+Hydrogels with independently controlled elastic modulus and stress relaxation have been developed. Yet, time- and labor-efficient
+identification of formulations used for the preparation of multicomponent hydrogels recapitulating the mechanical properties of
+a specific tissue remains a challenge. Conventional bottom-up screening of hydrogel formulations is resource-intensive, especially
+for navigating multicomponent hydrogels. Here, we present an active learning framework based on multi-objective Bayesian
+optimization to accelerate the discovery of biomimetic fibrous hydrogels replicating the elastic and viscous properties of the ECM
+of healthy and diseased tissues. In the data-driven approach, we iteratively navigated the multidimensional chemical space, while
+simultaneously optimizing hydrogel’s conflicting mechanical properties and mapping the boundaries of material feasibility using
+sparse experimental feedback. The experimental data were used to train a digital twin model and unveil the interplay between
+the fabrication conditions and hydrogel properties. The decoupled effects of the elasticity and viscosity were established for
+cell activation, proliferation, and morphogenesis. This work shows the potential of using the data-driven approach, leveraging
+even sparse experimental data to engineer hydrogels and optimize diverse biomaterials for tissue engineering and regenerative
+medicine.
+
+1
+
+Introduction
+
+The extracellular matrix (ECM) is a network of fibrous proteins,
+proteoglycans, and polysaccharides that are secreted by cells and
+provide structural support, mechanical cues, and biochemical sig-
+
+nalling to regulate cellular behavior and functions [1–5]. The ECM
+is viscoelastic [6], that is, it encompasses both elastic and viscous
+characteristics. Elasticity, characterized by the elastic modulus,
+reflects the ECM’s ability to restore its original shape after the
+external force causing deformation is removed [7], while viscosity
+
+Zhengkun Chen and Zheyuan Miao contributed equally to this work.
+This is an open access article under the terms of the Creative Commons Attribution-NonCommercial License, which permits use, distribution and reproduction in any
+medium, provided the original work is properly cited and is not used for commercial purposes.
+© 2026 The Author(s). Advanced Functional Materials published by Wiley-VCH GmbH
+
+Advanced Functional Materials, 2026; 36:e75639
+https://doi.org/10.1002/adfm.75639
+
+1 of 13
+
+The ECM of tissues in vivo has a distinct combination of the
+elastic modulus and stress relaxation, which is characteristic of
+each tissue and each particular physiological condition. Independent control of hydrogel elasticity and viscosity has been achieved
+by varying the density of non-covalent or dynamic covalent
+crosslinks [13–15], by using interpenetrating networks [16, 17],
+or by modulating polymer chain entanglements [18]. However,
+the recapitulation of tissue-specific mechanical properties relied
+on a One-Factor-At-A-Time (OFAT) screening paradigm [19–
+21], where individual hydrogel components and gel preparation
+conditions were iteratively varied to achieve the targeted properties. This forward-design process becomes largely ineffective
+for multicomponent hydrogels. As a result, OFAT often restricts
+the exploration process to a narrow parametric window and
+leaves most of the space of accessible properties unexplored. In
+contrast, an effective bioengineering strategy relies on a reversedesign process that starts with the specific mechanophenotype
+of a target tissue, followed by the identification of suitable
+hydrogel preparation conditions. OFAT becomes inefficient in
+such a reverse-design process [22] and therefore cannot efficiently
+navigate in a multicomponent hydrogel fabrication space.
+Machine learning (ML) has emerged as a powerful paradigm
+for accelerated materials discovery [23–26]. However, its application to biomaterials is hindered by the difficulty in collecting
+large data sets [27]. More specifically, characterizing hydrogel
+viscoelasticity and validating downstream cellular responses generally require labor-intensive manual experiments, which limit
+data generation throughput. To facilitate the utility of ML in the
+data-constrained regime, the design of experiments (DoE) was
+employed [28–30]. However, the DoE-assisted ML is generally
+confined to low-dimensional spaces with ≤3 inputs and fails to
+capture correlations between conflicting properties. Moreover,
+these models rely on static training sets, resulting in poor
+generalizability and the inability to predict performance outside
+the pre-defined experimental matrix. To overcome these limitations, active learning (AL) frameworks based on multi-objective
+Bayesian optimization (MOBO) provided a data-efficient strategy
+for material design [31]. Distinct from the DoE, AL operates as
+a dynamic process that starts with specific design targets and
+iteratively guides the experimental search toward the desired
+properties [25, 32, 33]. This framework enables efficient reverse
+design of biomimetic hydrogels, while simultaneously mapping
+the boundaries of material feasibility. However, its application has
+not yet been realized for designing hydrogels to recapitulate the
+mechanophenotypes of native tissues.
+Here, we report an AL workflow for accelerated reverse design
+of fibrous hydrogels with tissue-mimetic viscoelastic properties.
+By navigating the conflicting relationship between compres2 of 13
+
+sive modulus and stress relaxation, this data-driven approach
+guided the exploration of the multidimensional hydrogel design
+space using sparse experimental feedback. We show that this
+framework enabled effective search for the targeted combination
+of viscoelastic properties of the gel and identified hydrogel
+fabrication conditions recapitulating the mechanophenotypes of
+healthy and scarred skin, as well as benign versus malignant
+breast tumors. Rather than optimizing a single recipe, the model
+simultaneously mapped the boundaries of material feasibility,
+defining the accessible limits of the hydrogel system. By leveraging precisely controlled hydrogel properties, we successfully
+decoupled the effects of matrix elasticity and viscosity on fibroblast activation, cancer cell proliferation, and cancer spheroid
+morphogenesis. This work establishes a generalized framework
+for the synthesis and fabrication of biomaterials with competing
+mechanical properties, thus paving the way for the data-efficient
+discovery of complex tissue models for regenerative medicine and
+personalized disease modeling.
+
+2
+
+Results
+
+2.1
+Workflow of AL-Guided Hydrogel
+Fabrication
+A hydrogel was formed by (i) the assembly of aldehyde-modified
+cellulose nanocrystals (a-CNCs) in the HBSS buffer, resulting
+in a fibrous network where GelMA was colocalized with the
+a-CNCs in the fibers, and (ii) covalent crosslinking of a-CNCs
+and GelMA with the formation of imine crosslinking groups
+(Figure 1a). In the hydrogel, GelMA contributed to the network
+stability, introduced cell-adhesive ligands in the gel, and enabled
+next-step photocrosslinking of the fibers using methacryloyl
+groups. Intrafibrillar photocrosslinking of GelMA under ultraviolet (UV) irradiation using a photoinitiator, lithium phenyl-2,4,6trimethylbenzoylphosphinate (LAP), provided additional control
+of fiber stiffness that contributed to the elastic modulus of the
+hydrogel [34]. In this work, GelMA with either low or high
+content of methacryloyl groups (termed GelMA-L and GelMA-H,
+respectively) was used.
+Hydrogel fabrication was controlled by varying five parameters,
+namely, (i) a-CNC concentration, (ii) GelMA-L concentration,
+(iii) GelMA-H concentration, (iv) LAP concentration, and (v) the
+UV-irradiation time. The parameter space for hydrogel fabrication is provided in Table S1. We estimate that a step change of
+1.0 wt.% in the concentration of a-CNCs, GelMA-L, or GelMA-H,
+0.05 wt.% in LAP concentration, and a 60s increment in the UV
+exposure time would yield an experimental space of 6,230 possible
+hydrogel fabrication conditions. Even to explore a fraction of such
+a vast experimental space using an OFAT technique could take
+at least 4–6 months for a highly trained scientist. Rather than
+relying on the OFAT approach, we utilized an AL strategy for
+the accelerated exploration of the 5D parameter space to fabricate
+tissue-mimetic fibrous hydrogels with a targeted combination of
+elastic modulus and stress relaxation.
+Figure 1b illustrates the workflow for the AL-assisted hydrogel
+fabrication. First, tissue-specific target elastic modulus (E) and
+the fraction of relaxation achieved 100 s after the strain was
+applied (σ100 ) were selected. The values of E and σ100 characteristic
+Advanced Functional Materials, 2026
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+describes the time-dependent dissipation of deformation energy
+and is characterized by stress relaxation under a fixed applied
+strain [7, 8]. Viscoelasticity of the ECM is a key factor in mechanotransduction, the process in which cells detect a mechanical
+signal and translate it into a biochemical cue [9]. The changes
+in elastic or viscous properties of the ECM strongly impact cell
+behavior [10–12]. For example, an increase in the elastic modulus
+of the ECM is associated with the promotion of invasion and
+metastasis of hepatocellular carcinoma, whereas stronger stress
+relaxation accelerates the proliferation of carcinoma cells [10].
+
+for the ECM of healthy and scarred skin, as well as benign
+and malignant breast tumors (all shown in Table 1, along with
+corresponding references) were selected as objectives (targets) for
+MOBO, with their tolerance set at 10%, unless specified. While the
+relaxation fraction σ100 is less commonly used as a viscoelastic
+descriptor, it was selected to enable time-efficient integration
+within the AL framework, allowing the relaxation behavior to be
+represented by a single descriptor and quantified within a specific
+timeframe. For the optimal hydrogel formulations, the relaxation
+curves were also analyzed using exponential fitting to extract
+the characteristic relaxation time and half-time, which ensured
+a more rigorous and generalizable presentation of the relaxation
+kinetics. The identification of the hydrogel fabrication conditions
+satisfying these objectives was conducted in iterative experiments
+using Atlas [35, 36], a Bayesian optimization library that supports
+Advanced Functional Materials, 2026
+
+MOBO. The optimization began by using 44 fabrication conditions, both newly explored in this work and tested in our previous
+work [34] (Figure S1 and Table S2). The selection of the parameter
+space was based on practical considerations, that is, to avoid using
+reagent concentrations leading to excessively viscous precursor
+suspensions and UV irradiation time harmful to the cells. Atlas
+was utilized in four campaigns, with each campaign targeting a
+specific combination of E and σ100 . To maximize the efficiency
+of the iterations, subsequent campaigns retained all previous
+measurements, even if the target changed. In each iteration,
+four conditions proposed by Atlas were selected for hydrogel
+fabrication. More specifically, Atlas utilized a genetic algorithm
+[37, 38] to propose and rank different fabrication conditions based
+on the targeted E and σ100 . Following hydrogel fabrication, the
+value of E was characterized in the compression test, and the σ100
+3 of 13
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+FIGURE 1
+AL-guided hydrogel fabrication. (a) Schematic of hydrogel formation. (b) Workflow of the AL-integrated formulation of tissue-mimetic
+fibrous hydrogels.
+
+Mechanical properties of the selected target ECM.
+
+Target ECM
+Skin
+Breast tumor
+
+E (kPa)
+
+σ100 (%)
+
+Healthy
+
+1.5 [35, 36]
+
+25 [37, 38]
+
+Scarred
+
+12 [39]
+
+20 [40]
+
+Benign
+
+1.3 [41]
+
+50 [42]
+
+Malignant
+
+16 [42]
+
+Maximization
+
+value was determined as the relative reduction in the relaxation
+modulus (see Methods). The acquired values of E and σ100 were
+then added to the prior dataset to obtain the recommendation for
+the subsequent experimental iteration. The iterations continued
+until a hydrogel with a targeted combination of E and σ100 values
+within the tolerance range was fabricated, with one additional
+iteration conducted to ensure that no further improvement in
+these properties. For the identified hydrogels, we conducted
+scanning electron microscopy (SEM) imaging and cell culture
+experiments.
+
+2.2
+Fabrication of Skin-Mimetic Hydrogel
+Scaffolds
+For the hydrogel mimicking the properties of the ECM of healthy
+skin, we selected E = 1.5 ± 0.15 kPa and a σ100 = 25% ± 2.5% [35–
+38]. Figure 2a shows the variation in the average E and σ100 values
+of the hydrogels obtained in five experimental iterations. In each
+iteration, four sets of distinct hydrogel fabrication conditions proposed by Atlas were marked as the numbers on the x-axis of the
+graphs in Figure 2a. Gel fabrication conditions were annotated
+using the iteration number, followed by the number of the set
+of hydrogel fabrication conditions. For instance, the notation I1-2
+corresponds to the first iteration and the second set of fabrication
+conditions. The first three iterations did not result in the hydrogel
+with targeted E and σ100 values. After the tolerances for E and
+σ100 were reduced to zero to prioritize fabrication conditions
+leading to the hydrogel’s properties with a minimal deviation
+from the targets, two successful sets of fabrication conditions in
+the fourth iteration, namely, I4-2 and I4-4 led to the hydrogels
+with targeted values of both E and σ100 (Figure S2a,b and Table S3).
+In the additional fifth iteration, the hydrogel’s properties did not
+improve, indicating that Atlas identified the optimal fabrication
+conditions within four iterations. Hence, the experimental search
+was terminated. The hydrogels prepared under the identified
+fabrication conditions had E = 1.41 ± 0.12 kPa and σ100 = 25%
+± 1.0%, close to the values listed in Table 1. These hydrogels
+were referred to as Healthy Skin I4-2 and Healthy Skin I4-4
+hydrogels
+Next, Atlas was instructed to search for the fabrication conditions
+leading to a hydrogel with E = 12 ± 1.2 kPa and σ100 = 20% ± 2%,
+which are characteristic of the ECM in scarred skin (Table 1) [39,
+40]. Figure 2b shows the variation in the average E and σ100 values
+of the gel produced in the Atlas-guided iterative experiments. In
+the first four iterations, most hydrogels met the target for σ100
+but failed to achieve the targeted value of E. When three more
+experimental iterations were run with the UV-irradiation time
+
+4 of 13
+
+constrained below 60 s, the first fabrication condition achieving
+the targeted E and σ100 , I6-4, was identified in the sixth iteration.
+The hydrogels produced under I7-3 fabrication conditions also
+satisfied the target values of both E and σ100 (Figure S2c,d
+and Table S3). As no further improvement in these properties
+was achieved in the eighth interaction, the experiments were
+stopped. Two samples prepared under optimized conditions,
+termed Scarred Skin I6-4 and Scarred Skin I7-3 hydrogels, had E
+= 12.11 ± 1.03 kPa and σ100 = 22.5% ± 1.5%.
+The structure of the Healthy Skin and Scarred Skin hydrogels
+was examined by SEM imaging (Figure 2c). The hydrogels had a
+fibrous structure characteristic of the native ECM in the skin [43,
+44], with no statistical difference in fiber density for the samples
+with similar mechanical properties (Figure 2d). The fiber density
+of the Scarred Skin hydrogels was significantly higher than in the
+Healthy Skin samples, which mimicked an increased density of
+collagen fibers in the ECM of the scarred scar tissue [45, 46]. Thus,
+the hydrogels recapitulated the difference in both the mechanical
+properties and the structure of the ECM of healthy and scarred
+tissues.
+Since fibroblasts undergo prolonged activation into scar-making
+contracting myofibroblasts during abnormal scarring [47], we
+examined the effect of hydrogel viscoelasticity on fibroblast
+activation. Human dermal fibroblasts (HDFs) were cultured on
+1 mm-thick Healthy Skin and Scarred Skin hydrogel sheets for five
+days with a 4-day treatment of profibrotic transforming growth
+factor-β1 (TGF- β1). Figure 2e shows fibroblast morphology and
+the expression of the myofibroblast marker, α-smooth muscle
+actin (α-SMA), using immunofluorescence staining. The average
+spreading area of HDFs on the Scarred Skin I6-4 and I7-3
+hydrogels was significantly larger than on the Healthy Skin I42 and I4-4 samples (Figure 2f), reflecting the increased level
+of intracellular stress [48]. This effect was further validated
+by the expression of α-SMA [47]. For the cells cultured on
+the Healthy Skin hydrogels, α-SMA was not incorporated into
+stress fibers and remained as a soluble monomer (Figure 2ei,ii). In contrast, α-SMA assembled into actin filaments and was
+colocalized with F-actin when HDFs were cultured on the Scarred
+Skin hydrogel (Figure 2e-iii,iv). The co-localization of α-SMA
+and F-actin was quantified by the Pearson correlation coefficient
+(PCC) (Figure 2g). The PCC values of 0.60 and 0.45 for the
+cells seeded on the Scarred Skin and Healthy Skin hydrogels,
+respectively, indicated a stronger colocalization of α-SMA and
+F-actin in the HDFs cultured on the Scarred Skin hydrogels.
+Thus, fibroblasts cultured in the Scarred Skin gel recapitulated
+features of fibroblast activation associated with pathological
+scarring.
+
+Advanced Functional Materials, 2026
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+TABLE 1
+
+Advanced Functional Materials, 2026
+
+5 of 13
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+FIGURE 2
+Identification of fabrication conditions of hydrogels mimicking healthy and scarred skin ECM. (a, b) Iterative fabrication of hydrogels
+with E and σ100 characteristic of healthy skin (a) and scarred skin (b) ECM. The horizontal line shows the targeted values of E and σ100 . The shaded pinkcolor area reflects the tolerance of the targeted values. The arrows point to the optimal gel fabrication conditions. The pink box indicates the constraints
+included in the algorithm in the corresponding iterations. The data points are shown as mean ± standard deviation for at least two independently
+prepared gels. (c) SEM images of Healthy Skin hydrogels (i: Healthy Skin I4-2; ii: Healthy Skin I4-4) and Scarred Skin hydrogels (iii: Scarred Skin I64; iv: Scarred Skin I7-3). Scale bars, 1 µm. (d) Quantification of fiber density in Healthy Skin and Scarred Skin hydrogels. The data points are shown
+as mean ± standard deviation for n = 3 independently prepared hydrogels. (e) Representative immunofluorescence images of fibroblasts seeded on
+
+Since tissue-mimetic models enhance the ability to elucidate,
+test, and validate the role of the mechanical properties of the
+ECM in cancer development and drug response [49–51], we
+focused on the fabrication of hydrogels representing the ECM
+of benign and malignant tumors. We first searched for the
+fabrication conditions of the hydrogels with E = 1.3 ± 0.13 kPa
+and σ100 = 50% ± 5% (Table 1), which recapitulated soft and
+strongly relaxing benign tumor ECM [42, 52]. Figure 3a shows
+the variation in the average E and σ100 values of the hydrogel
+fabricated in seven closed-loop experimental series. In the third
+and fourth iterations, two sets of fabrication conditions, namely,
+I3-3 and I4-1, led to the gels with the target E and σ100 values
+(Figure S3 and Table S4). Notably, these two conditions were
+identified without human intervention during the data-driven
+optimization and experiment-selection steps. The experiments
+were completed after the seventh iteration, as no further improvement was observed in the fifth and sixth iterations, and results
+diverged from target values in the seventh iteration. Therefore,
+the optimal conditions were identified within four iterations.
+The hydrogels fabricated under optimal I3-3 and I4-1 conditions
+had E = 1.40 ± 0.12 kPa and a σ100 = 47.5% ± 3.5%, which
+were termed as Soft Tumor I3-3 and Soft Tumor I4-1 hydrogels,
+respectively.
+In the next experimental campaign, we utilized the data-driven
+strategy to discover the conditions for the fabrication of the
+hydrogel mimicking stiff tumor ECM with E = 16 kPa. Given
+a broad range of σ100 values reported in the literature for such
+ECM, the primary objective was set to maximize the value of σ100 ,
+while achieving E = 16 kPa. As shown in Figure 3b, in the first
+iteration, conditions I1-1 and I1-4 met the target value of E, with
+I1-4 providing σ100 = 12%. In the subsequent four iterations, all
+fabrication conditions showed no improvement in the hydrogel’s
+mechanical properties. The sample with E = 16.8 kPa and σ100
+= 12.0% (fabrication condition I1-4, Figure S3 and Table S4) was
+selected as a Stiff Tumor I1-4 hydrogel.
+Figure 3c shows the structure of Soft Tumor and Stiff Tumor
+hydrogels prepared using the AL-proposed fabrication conditions. The Soft Tumor I3-1 and I4-1 hydrogels had a fibrous structure (Figure 3c-i,ii), which was less evident for the Stiff Tumor
+hydrogel I1-4 (Figure 3c-iii) due to the inter-fiber crosslinking and
+a higher fiber density (Figure 3d).
+The Soft Tumor and Stiff Tumor hydrogels were used as scaffolds
+for the growth of spheroids from the human breast cancer cell
+line MCF-7. After a 15-day culture, spheroid morphology varied
+depending on the hydrogel’s mechanical properties (Figure 3e).
+Spheroids grown in the Soft Tumor I3-3 and I4-1 hydrogels were
+
+larger and had a more irregular shape (Figure 3e-i,ii; Figure S5a,b)
+than spheroids formed in the Stiff Tumor I1-4 hydrogel (Figure 3eiii; Figure S5c). To characterize spheroid shapes quantitatively,
+their circularity was calculated as the area-to-perimeter ratio (see
+Methods). In the Soft Tumor hydrogels, the circularity decreased
+over time (Figure 3f), indicating that spheroids gradually adopted
+an irregular shape. In contrast, spheroids growing in the Stiff
+Tumor hydrogel retained their circularity of approximately 0.87
+from Day 5 to Day 15. In addition, Figure 3g shows that
+on day 15, spheroids grown in the Soft Tumor I3-1 and I4-1
+hydrogels had a significantly larger area than spheroids grown
+in the Stiff Tumor I1-2 hydrogel. To decouple the effects of
+matrix biomechanics and GelMA concentration, we fabricated
+an additional soft tumor hydrogel, Soft Tumor (concentrationconstrained) hydrogel, with viscoelastic properties similar to
+those of the Soft Tumor hydrogels, but with GelMA concentration
+matching that of the Stiff Tumor hydrogel (Figure S4). As shown
+in Figure S6, on day 15, the spheroids formed in the Soft Tumor
+(concentration-constrained) hydrogel gained a size comparable
+to that of the spheroids cultured in the Soft Tumor hydrogels
+but had an approximately 10% higher circularity. These results
+indicate that spheroid growth was primarily governed by the
+matrix viscoelasticity, whereas the GelMA concentration affected
+spheroid morphology.
+To decouple the effect of elastic modulus and stress relaxation
+on tumor spheroid growth, we compared spheroid growth in two
+hydrogels with similar elasticity but different relaxation behavior,
+that is, in the Soft Tumor I4-1 gel and the Healthy Skin I4-2 gel. As
+shown in Figure S8 and Table S5, these two hydrogels exhibited
+comparable elastic moduli (1.44 vs. 1.43 kPa, respectively), but
+substantially different degrees of relaxation (46.5 vs. 25%), relaxation times (43.8 vs. 164 s in the slow relaxation timescale, τ2 ), and
+relaxation half-time (119 vs.548 s). The spheroids cultured in the
+Healthy Skin I4-2 hydrogel maintained a similar average area but
+had a more spherical shape (Figure S7), compared to spheroids
+grown in the Soft Tumor hydrogels. This observation indicated
+that the degree of stress relaxation of the hydrogel mostly affected
+spheroid shape, in agreement with previous reports on the effect
+of matrix viscosity on the morphogenesis of tumor spheroids
+[19, 21]. To examine the role of gel elasticity, we compared
+spheroids grown in the Stiff Tumor I1-2 hydrogel (E = 16.8 kPa,
+σ100 = 12.0%) and Healthy Skin I4-2 hydrogel (E = 1.44 kPa,
+σ100 = 25%). In the stiffer hydrogel, on Day 15, spheroids were
+significantly smaller but exhibited a similar circularity as in the
+soft hydrogel, which indicated that hydrogel elasticity primarily
+affects spheroid size. Collectively, these results reflect a specific
+role of each mechanical property: enhanced stress relaxation
+resulted in the irregular spheroid shape, due to enhanced cell
+migration in a rapidly relaxing matrix [42]; increased gel stiffness
+restricted spheroid growth by inducing cell cycle arrest through
+compressive stress [53]. Overall, these findings underline the
+
+hydrogels (i: Healthy Skin I4-2, ii: Healthy Skin I4-4, iii: Scarred Skin I6-4, and iv: Scarred Skin I7-3) stained for α-SMA (green), F-actin (Phalloidin, red),
+and nuclei (DAPI, blue). Insets show only the green channel to highlight the organization level of α-SMA in the indicated region. Scale bars, 50 µm.
+(f) Spreading area of fibroblasts seeded on Healthy Skin and Scarred Skin hydrogels. Columns show mean values ± SD of at least 100 cells analyzed
+from three independent biological repeats. (g) Pearson correlation coefficient (PCC) for the co-localization of α-SMA and F-actin in the cells. Columns
+show mean values of PCC ± SD for at least 32 cells analyzed from three independent biological repeats. Statistical analysis was performed with ordinary
+one-way ANOVA. ns p > 0.05, *p < 0.05, **p < 0.01, ***p < 0.001, ****p < 0.0001.
+
+6 of 13
+
+Advanced Functional Materials, 2026
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+2.3
+Fabrication of Breast Tumor-Mimetic
+Hydrogel Scaffolds
+
+Advanced Functional Materials, 2026
+
+7 of 13
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+FIGURE 3
+Identification of the fabrication conditions of hydrogels mimicking soft and stiff breast tumor ECM. (a,b) Iterative preparation of
+hydrogels with E and σ100 recapitulating the soft tumor (a) and the stiff tumor (b) ECM. The horizontal line shows the targeted values of E and σ100 . The
+shaded pink-color area reflects the tolerance of the targeted characteristics. The dark red arrows show the optimal conditions. Conditions in the pink
+box are the constraints included in the algorithm in the corresponding iterations. The data points are shown as mean ± standard deviation for at least
+two independently prepared gels. (c) SEM images of Soft Tumor hydrogels (i: Soft Tumor I3-11; ii: Soft Tumor I4-11) and the Stiff Tumor hydrogel (iii: Stiff
+Tumor I4-1). Scale bars, 1 µm. (d) Fiber density of Soft Tumor and Stiff Tumor hydrogels. The data points are shown as mean ± standard deviation for
+n = 3 independently taken images. (e) Immunofluorescence images of MCF-7 spheroids encapsulated in Soft Tumor hydrogel (i and ii) and Soft Tumor
+hydrogel (iii and iv) stained for Ki-67 (green), F-actin (red), and nuclei (blue). Scale bars, 100 µm. (f) Temporal variation in spheroid circularity over
+time. (g) Temporal variation in the dimensions of spheroids cultured in Soft Tumor and Stiff Tumor hydrogels. Statistical analysis was performed with
+ordinary one-way ANOVA. ns p > 0.05, *p < 0.05, **p < 0.01, ***p < 0.001, ****p < 0.0001.
+
+efficiency of the developed data-driven method for modeling
+the biomechanics of the tumor environment and exploring
+individual effects of stiffness and stress relaxation on tumor
+development.
+
+2.4
+Pareto-Front Mapping of the Tissue-Mimetic
+Fibrous Hydrogels
+The challenge in the fabrication of hydrogels with high elastic
+modulus and strong relaxation stems from the competition
+between these properties. We utilized Atlas to map the Pareto
+front for the hydrogels fabricated under different conditions to
+find the combination of hydrogel properties for which any further
+increase in the E value beyond the Pareto front would require a
+compromise in σ100 [54]. Delineating the trade-off relationship
+between elasticity and viscosity allowed us to (i) validate the
+identified conditions for the fabrication of stiff tumor hydrogels
+with the strongest possible relaxation and (ii) explore a feasible
+combination of the E and σ100 values.
+To rapidly identify the Pareto front of E and σ100 for a given hydrogel, we used hypervolume (HV) as the performance metric that
+measured the enclosed space under the E and σ100 curve of the
+highest-performing hydrogels [55]. A higher HV value represents
+a broader range of achievable combinations of hydrogels’ elasticity and viscosity. To initiate the Pareto-front mapping campaign,
+we utilized 100 data points generated in the previous closed-loop
+experiments as the training dataset of the surrogate model. Next,
+this pre-trained surrogate model of Atlas was utilized to expand
+the boundary of E and σ100 Pareto front. The iterative mapping
+process continued until the HV value reached a plateau. Figure 4a
+shows an increase in the HV value throughout this iterative
+Pareto-front mapping process, which was initially guided by a
+utopian target strategy and subsequently, by the HV improvement
+strategy (S8). The new HV value plateaued at 362–364 (peach
+and orange areas in Figure 4a), indicating completion of the
+8 of 13
+
+Pareto front mapping. Guided by Atlas, we outlined the Pareto
+front by exploring 168 hydrogel fabrication conditions out of 6230
+possible fabrication conditions using the discretization parameters discussed previously. To assess the predictive accuracy of
+the surrogate model, we evaluated its performance by using both
+cross-validation and held-out test set analyses (S7). The Gaussian
+Process model showed the agreement between the predicted
+and experimentally measured values of both E and σ100 , with
+R2 values approaching ∼0.82 for both properties (Figure S9a,b).
+The RMSE, R2 , and prediction log-likelihood improved along
+with the decreased prediction uncertainty after each iteration of
+the BO (Figure S9c-f). Therefore, the model effectively learned
+the underlying relationship between the hydrogel fabrication
+conditions and hydrogel mechanical properties from the added
+experimental data after each iteration, thereby enabling efficient navigation of the design space with minimal experimental
+sampling.
+Figure 4b, orange line illustrates the Pareto front of the hydrogel
+properties after mapping, with orange symbols representing 68
+newly AL-suggested fabrication conditions tested during the
+iterative mapping process. The 100 data points from previous
+closed-loop experiments are represented as blue symbols, with
+the corresponding Pareto front before mapping outlined by a
+dashed blue line. The expanded Pareto front validated the competing relationship between the E and σ100 values and defined the
+boundary between achievable and unachievable combinations of
+these mechanical properties for the hydrogels in the present work.
+Figure 4b reveals key insights into the competing relationship
+between E and σ100 of the hydrogel. First, it is infeasible to
+fabricate hydrogels with E > 5 kPa and σ100 > 40% within the
+explored experimental parameter space. Second, it outlines the
+region where E and σ100 can be decoupled. For E < 2.5 kPa,
+the hydrogels exhibit substantial variation in stress relaxation.
+Similarly, at σ100 < 20%, the hydrogels can have E of 2–18 kPa.
+These findings show the ability to independently modulate E and
+σ100 within these specific ranges.
+Advanced Functional Materials, 2026
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+FIGURE 4
+Pareto-front mapping of hydrogel properties. (a) Variation in HV in iterative experiments. The areas shaded in blue, light blue, peach,
+and orange colors represent the experiments on optimization of hydrogel fabrication conditions to recapitulate the mechanical properties of skin and
+breast tumor ECM, the first utopian target (E = 12 kPa, σ100 = 55%), the second utopian target (E = 3 kPa, σ100 = 50%), the third utopian target (E = 5 kPa,
+σ100 = 30%), and by maximizing HV values. (b) The trade-off between E and σ100 in the Pareto front before (dashed blue line) and after (dashed orange
+line) the mapping. The experimental points on the Pareto front are shown as orange circles. The experimental points characterized before and during
+the Pareto front mapping are shown as blue and orange dots.
+
+2.5
+
+Analysis of Hydrogel Fabrication Conditions
+
+The extensive experimental data collected during the fabrication
+of the tissue-mimetic hydrogels and Pareto-front mapping provided the ability to create a model of the hydrogel properties,
+termed “digital twin” [56], which predicts the value of E or σ100 of
+the hydrogel, based on the specific set of fabrication conditions.
+The 168 sets of experimental results (that is, the fabrication
+conditions and the corresponding E and σ100 values) were used
+to train the digital twin of the hydrogels to enable the prediction
+of E and σ100 for a given set of fabrication conditions. After testing
+and fine-tuning various ML algorithms, the digital twin based
+on gradient boosting showed the highest accuracy in predicting
+both E and σ100 (Table S6). Next, the optimal digital twin was
+used to study the impact of a specific fabrication parameter on the
+hydrogel E and σ100 using Shapley additive explanations (SHAP)
+analysis (Figure 5) [57]. A higher positive SHAP value indicates
+a stronger positive relationship between the parameter and the
+hydrogel property, whereas a negative SHAP value indicates an
+inverse relationship.
+In Figure 5a,b (top-to-bottom), the concentrations of GelMAL, GelMA-H, a-CNC, and LAP and the UV-exposure time are
+represented on the y-axis in the order of the decreasing impact
+on each mechanical property of the hydrogel. Each dot in this
+figure represents a specific fabrication parameter, with blue and
+red colors indicating low and high reagent concentrations or
+exposure time, respectively, with respect to the mean of the
+corresponding parameter. The distance of each dot from the
+vertical line reflects its SHAP value.
+An increase in the concentrations of GelMA-H, a-CNCs, GelMAL, and LAP and the UV exposure time led to higher hydrogel
+elasticity (Figure 5a). The concentration of GelMA-H had the
+most significant effect by affecting intrafibrillar crosslinking.
+The a-CNC concentration had the second strongest effect, as
+it determined fiber density in the hydrogel. The concentration
+of LAP was of the least importance, which indicated that the
+degree of intrafibrillar crosslinking was primarily governed by
+the concentrations of GelMA-H and GelMA-L. Figure 5b shows
+the effect of the hydrogel fabrication parameters on the value of
+σ100 . The concentration of GelMA-H had the greatest negative
+impact on σ100 , due to the covalent crosslinks formed within
+the hydrogel fibers. Interestingly, the relationship between the aCNC concentration and σ100 was not linear. While at high a-CNC
+concentrations, the value of σ100 was reduced, increasing a-CNC
+Advanced Functional Materials, 2026
+
+concentration in the low-to-moderate range mildly enhanced
+stress relaxation. Such an improvement can be attributed to the
+physical crosslinking of a-CNCs [58] or the dynamic nature of
+the imine crosslinks between a-CNCs and GelMA [59], both
+of which contribute to stress dissipation. However, at higher
+a-CNC concentrations, the increased fiber density introduced
+more extensive entanglement, which restricted fiber mobility and
+hindered the ability of the hydrogel network to relax stress.
+
+3
+
+Discussion
+
+The challenge in the reverse design of tissue-mimetic hydrogels
+with targeted properties lies in navigating complex multicomponent formulations, while simultaneously resolving intrinsically
+conflicting properties. In this study, the theoretical design space
+for the multicomponent composite fibrous hydrogel encompassed over 6230 possible fabrication conditions. Conventional
+OFAT screening becomes inefficient in navigating this vast
+multidimensional landscape. While elastic modulus and stress
+relaxation are often inversely coupled in hydrogels, OFAT is
+incapable of mapping complex property interactions and therefore becomes ineffective and even fails in target identification.
+By employing a hierarchical MOBO, we demonstrate that the
+AL framework effectively identifies optimal hydrogel fabrication
+conditions with only a small number of experiments. This strategy underscores the advantages of AL for the rational biomaterial
+design, particularly when resolving intrinsic property conflicts.
+An important insight provided by the MOBO algorithm was the
+rigorous delineation of the Pareto front of the viscoelasticity of
+the hydrogels. The Pareto front of the gels was obtained using 100
+conditions collected from the closed-loop experiments, with 68
+additional experiments designated for Pareto front mapping. The
+algorithm maintained a strategic balance between exploitation
+toward the optimization target and exploration to map out
+the hydrogel viscoelastic landscape. In contrast, identifying the
+Pareto front by using OFAT or conventional DoE-assisted ML
+is highly challenging and usually requires extensive tests across
+all possible parameter combinations. The Pareto-front mapping
+outlined the competing relationship between E and σ100 characteristics. The results of the SHAP analysis uncovered the level
+of importance of different fabrication conditions on the elastic
+and viscous properties of the hydrogels. While achieving high
+elastic modulus and strong relaxation simultaneously remained
+a challenging task due to the covalent bonding within GelMA,
+9 of 13
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+FIGURE 5
+SHAP analysis of the digital twins for the E and σ100 of the tissue-mimetic fibrous hydrogels. The impact of each reagent concentration
+and exposure time on (a) E and (b) σ100 of the hydrogels.
+
+A high efficiency of the Atlas framework was exemplified by
+the rapid discovery of the targeted gel fabrication conditions
+within only six iterations (24 experiments) in all campaigns.
+In the simulated comparison of Atlas with random search and
+grid search strategies using digital twins, the MOBO framework
+outperformed both grid and random search and achieved rapid
+convergence toward targeted gel properties even for the most
+challenging scarred skin-mimetic gel that required the greatest
+number of experimental iterations (Figure S10). While achieving
+target properties with limited experimental data might raise
+concerns about model overfitting, such performance shows the
+suitability of the framework for the reverse design of tissuemimetic hydrogels. From the application-driven perspective, the
+framework succeeded in its primary objective of identifying
+hydrogel fabrication conditions for specific mechanotypes with
+minimal resource expenditure. Such robustness is attributed
+to the Gaussian Process (GP) regression embedded within the
+Atlas algorithm. Unlike neural networks that require massive
+datasets to converge, GPs are probabilistic models designed to
+maximize likelihood in low-data regimes (<100 data points)
+through built-in regularization [60–62]. Moreover, the resulting
+“digital twin” models demonstrated strong generalization to
+untested parameters within the parameter space, thus ensuring
+that rapid optimization was a result of efficient search dynamics,
+rather than memorization or overfitting.
+
+4
+
+Conclusion
+
+We demonstrated an AL framework that enabled data-efficient
+reverse design of fibrous hydrogels with targeted tissue-mimetic
+viscoelasticity. By employing MOBO to navigate the intrinsic
+trade-offs between the gel elastic modulus and stress relaxation,
+this framework enabled the rapid identification of optimal fabrication conditions of hydrogels recapitulating the biomechanics
+of the ECM of healthy and fibrotic skin, as well as benign
+and malignant breast tumors. Beyond accelerating the discovery,
+the algorithm successfully mapped the boundaries of material
+feasibility. The resulting mechanomimetic scaffolds enabled the
+growth of fibroblast and tumor cells in a microenvironment with
+biomimetic mechanical properties. The developed data-driven
+approach established a platform for future mechanistic investigation of the role of viscoelasticity of the microenvironment in
+biological processes. The AL-guided strategy developed in this
+work highlights a data-driven approach to the acceleration of
+material discovery and the translation from lab-designed materials to patient-specific tissue mimetics to approach personalized
+medicine from a material perspective.
+
+5
+
+group/atlas). In the search for the optimal fabrication of healthy
+skin, scarred skin, soft breast tumors, stiff breast tumors, and
+utopian targets, Chimera was selected as a scalarizing function,
+which produces a score based on the user-defined objectives, as
+well as the hierarchical importance of the objectives. During the
+Pareto-front mapping process, HV was selected as the scalarizing
+function. In all the searches, σ100 and E were selected as the
+primary and secondary objectives (targets) for optimization,
+respectively. We defined the experimental fabrication parameter
+space based on the pre-determined initial working concentrations
+of the reagents. The AL model used a GP regressor [63] as the
+surrogate model. The predictions from the model were used to
+evaluate the expected improvement acquisition function [64],
+which was then optimized using a genetic algorithm [65]. In each
+iteration, the algorithm was asked to generate 10 conditions, and
+the first four distinguished conditions were chosen to be tested
+experimentally. In the case of healthy skin, scarred skin, soft
+breast tumor, and utopian targets, the specific values of σ100 and
+E were set as objectives by framing the problem as minimizing
+the absolute deviation from the targets. The tolerance for these
+properties was set as 10% of the target values. In the case of the
+stiff breast tumor, a specific value of E was targeted, while the
+target value for σ100 was input as null (undefined) to search for the
+conditions leading to the maximum possible σ100 at the specific E.
+The tolerance of the E value for the stiff breast tumor hydrogel
+was set as 10% of the target, while the tolerance of σ100 was set
+to maximum at 1010 . To maximize the HV, the target values for
+E and σ100 were set as null with a maximum tolerance of 1010 . In
+each iteration, the ML algorithm was asked to generate 4 sets of
+fabrication conditions (that is, the batch size was 4). If 4 sets of
+fabrication conditions were practically similar, the batch size was
+increased to generate 4 distinct sets of fabrication conditions.
+
+Methods
+
+5.1
+
+ML-Guided Hydrogel Optimization
+
+The MOBO of hydrogel viscoelastic properties was achieved
+using the Atlas Python library (https://github.com/aspuru-guzik10 of 13
+
+5.2
+
+Hydrogel Preparation and Characterization
+
+The hydrogel components, that is, a-CNCs and GelMA were
+synthesized as described elsewhere [34]. GelMA-L and GelMAH have an averaged degree of modification with methacryloyl
+groups of 25% and 75%, respectively. The stock of 3.0–6.0 wt.%
+suspension of a-CNCs was prepared in 1X Hank’s buffered salted
+solutions (HBSS). The stock solutions of GelMA-L, GelMA-H,
+and LAP were prepared at concentrations of 15.0, 15.0, and 2 wt.%
+in 1X HBSS, respectively. The hydrogel precursor was prepared
+using the concentrations recommended by the AL algorithm.
+Gelation was induced by incubating the mixtures of a-CNCs,
+GelMA-L, GelMA-H, and LAP for 2 h at 37◦ C, followed by UV
+irradiation for the ML-recommended duration (400 nm, intensity
+at 30 mW cm−2 ).
+The disk-shaped samples (5.00 mm in height and 9.83 mm in
+diameter) for compression tests were prepared by crosslinking
+the hydrogel precursor mixture in 2 mL plastic syringes (NormJect) with the tip cut off. Compression tests were performed using
+a Mach-1 Mechanical tester (Biomomentum Inc.). The samples
+were subjected to 20% compressive strain at a rate of 0.1 mm s−1 .
+The Young’s modulus was determined from the slope of the linear
+region of the stress-strain curve at a 10%–15% strain.
+To measure stress relaxation, the hydrogel precursor mixture
+was gelled between the 40 mm parallel plates of the DHR-1
+Advanced Functional Materials, 2026
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+the variations in E and σ100 were decoupled in soft gels with E
+< 2.5 kPa. This result can be used to fabricate hydrogels with E
+< 2.5 kPa with either strong (σ100 > 50%) or weak (σ100 < 50%)
+relaxation.
+
+5.3
+
+Imaging Hydrogel Structure
+
+The hydrogel samples were prepared using supercritical CO2
+drying following the replacement of water with ethanol by
+immersing the samples sequentially in 30, 40, 50, 60, 70, 80, 90,
+and 100 vol.% ethanol/water mixtures for 30 min. The samples
+were fractured and processed in an Autosamdri-810 Tousimis
+critical point dryer to replace the ethanol with liquid CO2 , which
+was then removed by slow venting at the supercritical state.
+The dried hydrogels were gold-coated using an SC7640 HighResolution Sputter Coater (Quorum Technologies) and imaged
+with a Quanta FEI scanning electron microscope at an accelerating voltage of 10 kV. Fiber density and diameter were determined
+using the ImageJ plugin DiameterJ (https://imagej.net/plugins/
+diameterj).
+
+5.4
+
+Cell Culture
+
+The hydrogels were gelled in the 35 mm-diameter confocal dish
+with a glass bottom diameter of 20 mm (VWR, 75856-746). Primary
+neonatal human dermal fibroblasts (ATCC, PCS-201-010) were
+seeded on crosslinked skin ECM-mimetic hydrogels at a density
+of 10 cells/µL in 1 mL complete DMEM culture medium supplemented 10 vol.% FBS, and 1.0 vol.% penicillin/streptomycin.
+On day 2, the fibroblasts were exposed for 4 days to DMEM
+containing 2 ng mL−1 recombinant active TGF-𝛽1, 2 vol.% FBS,
+and 1.0 vol.% penicillin/streptomycin. For hydrogels mimicking
+breast tumor ECM, the human breast adenocarcinoma cell line,
+MCF-7 (ATCC, HTB-22) was suspended in the hydrogel precursor
+mixture at a density of 100 cells/µL. The cell-laden hydrogels
+were crosslinked as described above. After gelation, 1 mL of
+complete DMEM containing 10 vol.% FBS and 1.0 vol.% penicillin/streptomycin was added to the dish, and the encapsulated
+cells were cultured for 15 days with medium change every 5
+days.
+
+5.5
+
+Immunofluorescence Staining
+
+To conduct immunofluorescence staining, the cell-laden hydrogels were first fixed using 3 wt.% paraformaldehyde for 10 min
+in 2D culture and 20 min in 3D culture. The samples were
+immersed for 5 min in 0.2 vol.% Triton X-100 for 2D culture
+and 0.5 vol.% Triton-X for 3D culture, blocked using 3 wt.%
+bovine serum albumins (BSA) for 90 min, and subsequently,
+incubated with primary antibodies for 90 min, followed by
+another 60 min incubation with secondary antibodies. Between
+each step, the samples were washed three times using 1X
+Advanced Functional Materials, 2026
+
+phosphate-buffered saline (PBS). The description of antibodies
+is provided in Table S7. The images of the stained fibroblasts
+or tumor spheroids were obtained using ZEISS LSM710 confocal
+microscopy.
+
+5.6
+
+Analysis of Fibroblast Activation
+
+The spreading area of the fibroblasts was measured by analyzing their confocal fluorescence images using ImageJ software.
+The colocalization of F-actin and α-SMA in the fibroblasts
+was analyzed based on confocal fluorescence images using the
+ImageJ plugin JaCoP (https://imagej.net/plugins/jacop). Pearson
+coloration coefficient was used to quantify the activation of
+fibroblasts to myofibroblasts.
+
+5.7
+
+Analysis of Tumor Spheroid Growth
+
+Brightfield images of tumor spheroids encapsulated in the hydrogels were taken every five days using a Nikon Eclipse Ti inverted
+microscope. The spheroid area and perimeter were measured
+using ImageJ software. The circularity of the spheroids was
+calculated as
+𝐶𝑖𝑟𝑐𝑢𝑙𝑎𝑟𝑖𝑡𝑦 = 4𝜋 ×
+
+5.8
+
+𝐴𝑟𝑒𝑎
+𝑃𝑒𝑟𝑖𝑚𝑒𝑡𝑒𝑟2
+
+Statistical Analysis
+
+Graphpad Prism software was used for statistical analysis in
+this study. Differences between several groups were analyzed
+using ordinary one-way ANOVA with multiple comparison
+test between each individual group. The difference between
+the two groups was analyzed through two-tailed unpaired ttests. Data presentation and the sample size for each statistical analysis were specified as in the corresponding figure
+legend.
+
+Acknowledgements
+E.K. is thankful for the financial support of this work from the Natural
+Sciences and Engineering Research Council of Canada (Discovery Grant
+Program). The authors thank J. Jonkman from the Advanced Optical
+Microscopy Facility at University Health Network for assistance with
+confocal microscopy.
+Funding
+E.K. is thankful for the financial support of this work from the Natural
+Sciences and Engineering Research Council of Canada (Discovery Grant
+Program).
+Data Availability Statement
+All data supporting the findings of this study are available within the main
+text and Supplementary Information. All original code has been deposited
+at GitHub and is publicly available at [https://github.com/ZicorChen/
+Hydrogel_BO] as of the date of publication. Any additional information
+required to reanalyze the data reported in this paper is available from the
+lead contact upon request.
+
+11 of 13
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+rheometer (TA Instruments). Mineral oil was added to the
+edge of the mixture to prevent solvent evaporation. The sample was UV irradiated from underneath for a specific time, a
+5% step strain was applied for 0.1 s and subsequently, held
+for 100 s. The relaxation modulus was calculated by dividing
+the measured shear stress at each time point by the applied
+strain [66]. This value of the relaxation modulus was normalized to its value at 0.1 s. Stress relaxation, σ100 was expressed
+as the relative decrease (in %) of the normalized relaxation
+modulus 0.1 s.
+
+1. G. S. Hussey, J. L. Dziki, and S. F. Badylak, “Extracellular Matrix-Based
+Materials for Regenerative Medicine,” Nature Reviews Materials 3 (2018):
+159–173, https://doi.org/10.1038/s41578-018-0023-x.
+2. L. G. Griffith and M. A. Swartz, “Capturing Complex 3D Tissue
+Physiology in Vitro,” Nature Reviews Molecular Cell Biology 7 (2006):
+211–224, https://doi.org/10.1038/nrm1858.
+3. C. Frantz, K. M. Stewart, and V. M. Weaver, “The Extracellular Matrix
+at a Glance,” Journal of Cell Science 123 (2010): 4195–4200, https://doi.org/
+10.1242/jcs.023820.
+4. L. Schaefer and R. M. Schaefer, “Proteoglycans: From Structural
+Compounds to Signaling Molecules,” Cell and Tissue Research 339 (2010):
+237–246, https://doi.org/10.1007/s00441-009-0821-y.
+5. H. Järveläinen, A. Sainio, M. Koulu, T. N. Wight, and R. Penttinen,
+“Extracellular Matrix Molecules: Potential Targets in Pharmacotherapy,”
+Pharmacological Reviews 61 (2009): 198–223.
+6. A. Saraswathibhatla, D. Indana, and O. Chaudhuri, “Cell–Extracellular
+Matrix Mechanotransduction in 3D,” Nature Reviews Molecular Cell
+Biology 24 (2023): 495–516, https://doi.org/10.1038/s41580-023-00583-1.
+7. M. C. Harmsen, V. Getova, M. Zhang, et al., in Handbook of the
+Extracellular Matrix: Biologically-Derived Materials, eds: F. R. A. Maia, J.
+M. Oliveira, R. L. Reis, (Springer International Publishing, 2023).
+8. O. Chaudhuri, L. Gu, M. Darnell, et al., “Substrate Stress Relaxation
+Regulates Cell Spreading,” Nature Communications 6 (2015): 6365, https://
+doi.org/10.1038/ncomms7365.
+9. J. D. Humphrey, E. R. Dufresne, and M. A. Schwartz, “Mechanotransduction and Extracellular Matrix Homeostasis,” Nature Reviews Molecular
+Cell Biology 15 (2014): 802–812, https://doi.org/10.1038/nrm3896.
+10. W. Fan, K. Adebowale, L. Váncza, et al., “Matrix Viscoelasticity
+Promotes Liver Cancer Progression in the Pre-Cirrhotic Liver,” Nature 626
+(2024): 635–642, https://doi.org/10.1038/s41586-023-06991-9.
+11. D. Indana, P. Agarwal, N. Bhutani, and O. Chaudhuri, “Viscoelasticity
+and Adhesion Signaling in Biomaterials Control Human Pluripotent
+Stem Cell Morphogenesis in 3D Culture,” Advanced Materials 33 (2021):
+2101966, https://doi.org/10.1002/adma.202101966.
+12. O. Chaudhuri, J. Cooper-White, P. A. Janmey, D. J. Mooney, and V.
+B. Shenoy, “Effects of Extracellular Matrix Viscoelasticity on Cellular
+Behaviour,” Nature 584 (2020): 535–546, https://doi.org/10.1038/s41586020-2612-2.
+13. Z. Miao, Z. Chen, E. Gusarova, Y. Ma, and E. Kumacheva, “Viscoelasticity of Fibrous Hydrogels Driven by Dynamic Intrafibrillar Imine
+Cross-Linking,” Biomacromolecules 26 (2025): 6297–6308, https://doi.org/
+10.1021/acs.biomac.5c01337.
+
+20. A. Chrisnandy, D. Blondel, S. Rezakhani, N. Broguiere, and
+M. P. Lutolf, “Synthetic Dynamic Hydrogels Promote DegradationIndependent in Vitro organogenesis,” Nature Materials 21 (2022): 479–487,
+https://doi.org/10.1038/s41563-021-01136-7.
+21. F. M. Yavitt, B. E. Kirkpatrick, M. R. Blatchley, et al., “In Situ Modulation of Intestinal Organoid Epithelial Curvature Through Photoinduced
+Viscoelasticity Directs Crypt Morphogenesis,” Science Advances 9 (2023):
+add5668, https://doi.org/10.1126/sciadv.add5668.
+22. V. Czitrom, “One-Factor-at-a-Time versus Designed Experiments,”
+The American Statistician 53 (1999): 126–131, https://doi.org/10.1080/
+00031305.1999.10474445.
+23. D. Morgan and R. Jacobs, in Opportunities and Challenges for
+Machine Learning in Materials Science, ed. D. R. Clarke (2020): 71–103,
+https://doi.org/10.1146/annurev-matsci-070218-010015.
+24. Z. Wang, Z. H. Sun, H. Yin, et al., “Data-Driven Materials Innovation
+and Applications,” Advanced Materials 34 (2022): 2104113, https://doi.org/
+10.1002/adma.202104113.
+25. H. Tao, T. Wu, S. Kheiri, M. Aldeghi, A. Aspuru-Guzik, and E.
+Kumacheva, “Self-Driving Platform for Metal Nanoparticle Synthesis:
+Combining Microfluidics and Machine Learning,” Advanced Functional
+Materials 31 (2021): 2106725, https://doi.org/10.1002/adfm.202106725.
+26. G. Tom, S. P. Schmid, S. G. Baird, et al., “Self-Driving Laboratories
+for Chemistry and Materials Science,” Chemical Reviews 124 (2024):
+9633–9732, https://doi.org/10.1021/acs.chemrev.4c00055.
+27. S. M. McDonald, E. K. Augustine, Q. Lanners, C. Rudin, L. C. Brinson,
+and M. L. Becker, “Applied Machine Learning as a Driver for Polymeric
+Biomaterials Design,” Nature Communications 14 (2023): 4838, https://
+doi.org/10.1038/s41467-023-40459-8.
+28. M. G. Arafa and B. M. Ayoub, “DOE Optimization of Nano-based
+Carrier of Pregabalin as Hydrogel: New Therapeutic & Chemometric
+Approaches for Controlled Drug Delivery Systems,” Scientific Reports 7
+(2017): 41503, https://doi.org/10.1038/srep41503.
+29. D. N. Carvalho, C. Gonçalves, J. M. Oliveira, et al., “A Design of
+Experiments (DoE) Approach to Optimize Cryogel Manufacturing for
+Tissue Engineering Applications,” Polymers 14 (2022): 2026, https://doi.
+org/10.3390/polym14102026.
+30. J. Leem, Y. Jiang, A. Robinson, Y. Xia, and X. Zheng, “DataDriven Approach to Tailoring Mechanical Properties of a Soft Material,”
+Advanced Functional Materials 33 (2023): 2304451, https://doi.org/10.
+1002/adfm.202304451.
+31. Y. Jin and P. V. Kumar, “Bayesian Optimisation for Efficient Material
+Discovery: A Mini Review,” Nanoscale 15 (2023): 10975–10984, https://doi.
+org/10.1039/D2NR07147A.
+
+14. B. E. Kirkpatrick, A. P. Dhand, L. P. Hibbard, et al., “Ultrafast-Relaxing
+and Photopolymerizable PEG Hydrogels Enable Viscoelasticity-mediated
+Cell Remodeling in Synthetic Matrices,” Matter 9 (2026): 102524.
+
+32. T. Chen, Z. Pang, S. He, et al., “Machine Intelligence-Accelerated
+Discovery of All-Natural Plastic Substitutes,” Nature Nanotechnology 19
+(2024): 782–791.
+
+15. H. Moheimani, S. Stealey, S. Neal, et al., “Tunable Viscoelasticity
+of Alginate Hydrogels via Serial Autoclaving,” Advanced Healthcare
+Materials 13 (2024): 2401550, https://doi.org/10.1002/adhm.202401550.
+
+33. B. Peng, Y. Wei, Y. Qin, et al., “Machine learning-Enabled Constrained
+Multi-Objective Design of Architected Materials,” Nature Communications 14 (2023): 6630, https://doi.org/10.1038/s41467-023-42415-y.
+
+16. J. G. Roth, M. S. Huang, R. S. Navarro, J. T. Akram, B. L. LeSavage, and
+S. C. Heilshorn, “Tunable Hydrogel Viscoelasticity Modulates Human
+Neural Maturation,” Science Advances 9 (2023): adh8313, https://doi.org/
+10.1126/sciadv.adh8313.
+
+34. Z. Chen, M. Ezzo, B. Zondag, et al., “Intrafibrillar Crosslinking
+Enables Decoupling of Mechanical Properties and Structure of a Composite Fibrous Hydrogel,” Advanced Materials 36 (2024): 2305964, https://
+doi.org/10.1002/adma.202305964.
+
+17. T. Li, J. Hou, L. Wang, et al., “Bioprinted Anisotropic Scaffolds With
+Fast Stress Relaxation Bioink for Engineering 3D Skeletal Muscle and
+Repairing Volumetric Muscle Loss,” Acta Biomaterialia 156 (2023): 21–36,
+https://doi.org/10.1016/j.actbio.2022.08.037.
+
+35. D. L. Bader and P. Bowker, “Mechanical Characteristics of Skin and
+Underlying Tissues in Vivo,” Biomaterials 4 (1983): 305–308, https://doi.
+org/10.1016/0142-9612(83)90033-9.
+
+18. O. Chaudhuri, L. Gu, D. Klumpers, et al., “Hydrogels With Tunable
+Stress Relaxation Regulate Stem Cell Fate and Activity,” Nature Materials
+15 (2016): 326–334, https://doi.org/10.1038/nmat4489.
+
+36. V. F. Achterberg, L. Buscemi, H. Diekmann, et al., “The NanoScale Mechanical Properties of the Extracellular Matrix Regulate Dermal
+Fibroblast Function,” Journal of Investigative Dermatology 134 (2014):
+1862–1872, https://doi.org/10.1038/jid.2014.90.
+
+19. A. Elosegui-Artola, A. Gupta, A. J. Najibi, et al., “Matrix Viscoelasticity Controls Spatiotemporal Tissue Organization,” Nature Materials 22
+(2023): 117–127, https://doi.org/10.1038/s41563-022-01400-4.
+
+37. C. H. Daly, “Biomechanical Properties of Dermis,” Journal of
+Investigative Dermatology 79 (1982): 17–20, https://doi.org/10.1038/jid.
+1982.4.
+
+12 of 13
+
+Advanced Functional Materials, 2026
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+References
+
+39. Y. Zhang, Y. Wang, Y. Li, et al., “Application of Collagen-Based
+Hydrogel in Skin Wound Healing,” Gels 9 (2023): 185, https://doi.org/10.
+3390/gels9030185.
+40. C. Lai, G. Song, B. Zhao, et al., “Preparation and Characterization of
+Human Scar Acellular Dermal Matrix,” Journal of Biomaterials Science,
+Polymer Edition 30 (2019): 769–784, https://doi.org/10.1080/09205063.
+2019.1603830.
+41. E. C. Filipe, S. Velayuthar, A. Philp, et al., “Tumor Biomechanics Alters
+Metastatic Dissemination of Triple Negative Breast Cancer via Rewiring
+Fatty Acid Metabolism,” Advanced Science 11 (2024): 2307963, https://doi.
+org/10.1002/advs.202307963.
+42. S. Nam, V. K. Gupta, H. Lee, et al., “Cell cycle Progression in
+Confining Microenvironments Is Regulated by a Growth-Responsive
+TRPV4-PI3K/Akt-p27Kip1 Signaling Axis,” Science Advances 5 (2019):
+aaw6171, https://doi.org/10.1126/sciadv.aaw6171.
+43. M.-A. Koo, H. Jeong, S. H. Hong, G. M. Seon, M. H. Lee, and J.-C. Park,
+“Preconditioning Process for Dermal Tissue Decellularization Using
+Electroporation with Sonication,” Regenerative Biomaterials 9 (2021):
+rbab071.
+44. I. Brown, “Scanning Electron Microscopy of Human Dermal Fibrous
+Tissue,” Journal of Anatomy 113 (1972): 159.
+45. L. Maknuna, H. Kim, Y. Lee, et al., “Automated Structural
+Analysis and Quantitative Characterization of Scar Tissue Using
+Machine Learning,” Diagnostics 12 (2022): 534, https://doi.org/10.3390/
+diagnostics12020534.
+
+Accelerated Materials Design NeurIPS 2022 Workshop, (OpenReview.net
+2022).
+56. B. Basu, N. H. Gowtham, Y. Xiao, S. R. Kalidindi, and K. W. Leong,
+“Biomaterialomics: Data Science-Driven Pathways to Develop FourthGeneration Biomaterials,” Acta Biomaterialia 143 (2022): 1–25, https://doi.
+org/10.1016/j.actbio.2022.02.027.
+57. S. M. Lundberg and S.-I. Lee, in Proceedings of the 31st International
+Conference on Neural Information Processing Systems, (Curran Associates
+Inc., 2017).
+58. J. Yang, C. Han, F. Xu, and R. Sun, “Simple Approach to Reinforce Hydrogels With Cellulose Nanocrystals,” Nanoscale 6 (2014): 5934,
+https://doi.org/10.1039/c4nr01214c.
+59. S. Zhang, D. Huang, H. Lin, Y. Xiao, and X. Zhang, “Cellulose Nanocrystal Reinforced Collagen-Based Nanocomposite Hydrogel
+With Self-Healing and Stress-Relaxation Properties for Cell Delivery,”
+Biomacromolecules 21 (2020): 2400–2408, https://doi.org/10.1021/acs.
+biomac.0c00345.
+60. P. Xu, X. Ji, M. Li, and W. Lu, “Small Data Machine Learning in
+Materials Science,” npj Computational Materials 9 (2023): 42, https://doi.
+org/10.1038/s41524-023-01000-z.
+61. R.-R. Griffiths, L. Klarner, H. Moss, et al., “GAUCHE: A Library
+for Gaussian Processes in Chemistry,” Advances in Neural Information
+Processing Systems 36 (2023): 76923–76946.
+62. G. Tom, R. J. Hickman, A. Zinzuwadia, A. Mohajeri, B. SanchezLengeling, and A. Aspuru-Guzik, “Calibration and Generalizability of
+Probabilistic Models on Low-Data Chemical Datasets With DIONYSUS,”
+Digital Discovery 2 (2023): 759–774, https://doi.org/10.1039/D2DD00146B.
+63. J. R. Gardner, G. Pleiss, D. Bindel, K. Q. Weinberger, and A. G. Wilson,
+in Proceedings of the 32nd International Conference on Neural Information
+Processing Systems, (Curran Associates Inc., 2018).
+
+46. A. C. Panayi, C. Reitblat, and D. P. Orgill, in Total Scar Management:
+From Lasers to Surgery for Scars, Keloids, and Scar Contractures, ed. R.
+Ogawa. (Springer Singapore, 2020).
+
+64. M. Balandat, B. Karrer, D. Jiang, et al., “BoTorch: A Framework
+for Efficient Monte-Carlo Bayesian Optimization,” Advances in Neural
+Information Processing Systems 33 (2020): 21524–21538.
+
+47. F. S. Younesi, A. E. Miller, T. H. Barker, F. M. V. Rossi, and B.
+Hinz, “Fibroblast and Myofibroblast Activation in Normal Tissue Repair
+and Fibrosis,” Nature Reviews Molecular Cell Biology 25 (2024): 617–638,
+https://doi.org/10.1038/s41580-024-00716-0.
+
+65. J. Blank and K. Deb, “Pymoo: Multi-Objective Optimization in
+Python,” IEEE Access 8 (2020): 89497–89509, https://doi.org/10.1109/
+ACCESS.2020.2990567.
+
+48. P. A. Janmey, B. Hinz, and C. A. McCulloch, “Physics and Physiology
+of Cell Spreading in Two and Three Dimensions,” Physiology 36 (2021):
+382–391, https://doi.org/10.1152/physiol.00020.2021.
+49. T. R. Cox, “The Matrix in Cancer,” Nature Reviews Cancer 21 (2021):
+217–238, https://doi.org/10.1038/s41568-020-00329-7.
+50. A. Massey, J. Stewart, C. Smith, et al., “Mechanical Properties of
+Human Tumour Tissues and Their Implications for Cancer Development,” Nature Reviews Physics 6 (2024): 269–282, https://doi.org/10.1038/
+s42254-024-00707-2.
+
+66. P. Hajikarimi and F. M. Nejad, in Applications of Viscoelasticity, eds. P.
+Hajikarimi, F. M. Nejad. (Elsevier, 2021).
+
+Supporting Information
+Additional supporting information can be found online in the Supporting
+Information section.
+Supporting File: adfm75639-sup-0001-SuppMat.docx.
+
+51. D. Ghosh and M. R. Dawson, in Biomechanics in Oncology, eds: C.
+Dong, N. Zahir, K. Konstantopoulos. (Springer International Publishing,
+2018).
+52. M. Plodinec, M. Loparic, C. A. Monnier, et al., “The Nanomechanical
+Signature of Breast Cancer,” Nature Nanotechnology 7 (2012): 757–765,
+https://doi.org/10.1038/nnano.2012.167.
+53. A. V. Taubenberger, S. Girardo, N. Träber, et al., “3D Microenvironment Stiffness Regulates Tumor Spheroid Growth and Mechanics via p21
+and ROCK,” Advanced Biosystems 3 (2019): 1900128, https://doi.org/10.
+1002/adbi.201900128.
+54. B. P. MacLeod, F. G. L. Parlane, C. C. Rupnow, et al., “A Self-Driving
+Laboratory Advances the Pareto Front for Material Properties,” Nature
+Communications 13 (2022): 995, https://doi.org/10.1038/s41467-02228580-6.
+55. N. Kusanda, G. Tom, R. Hickman, A. Nigam, K. Jorner, and A.
+Aspuru-Guzik, “presented at Assessing Multi-objective Optimization of
+Molecules with Genetic Algorithms Against Relevant Baselines,” AI for
+
+Advanced Functional Materials, 2026
+
+13 of 13
+
+16163028, 2026, 48, Downloaded from https://advanced.onlinelibrary.wiley.com/doi/10.1002/adfm.75639 by NICE, National Institute for Health and Care Excellence, Wiley Online Library on [19/09/2026]. See the Terms and Conditions (https://onlinelibrary.wiley.com/terms-and-conditions) on Wiley Online Library for rules of use; OA articles are governed by the applicable Creative Commons License
+
+38. L. Brady, S. Pai, J. M. Iaquinto, Y.-N. Wang, and W. R. Ledoux, “The
+Compressive, Shear, Biochemical, and Histological Characteristics of
+Diabetic and Non-Diabetic Plantar Skin are Minimally Different,” Journal
+of Biomechanics 129 (2021): 110797, https://doi.org/10.1016/j.jbiomech.
+2021.110797.
+
+

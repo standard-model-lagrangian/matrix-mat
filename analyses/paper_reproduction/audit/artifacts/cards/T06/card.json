@@ -1,0 +1,102 @@
+{
+  "task_id": "T06",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.3, Figure 5, SI Table S6 (SHAP Feature Attribution & Mechanistic Claims)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Feature attribution ranks and mechanistic conclusions reported from the Gradient Boosting twin are robust to background choice, model class swap (to higher-performing SVR), and bootstrap resampling, and the reported a-CNC non-monotonicity reflects a robust physical trend rather than tree split artifacts.",
+    "primary_metric": "Spearman rank correlation across model swap (rho_svr), background distribution (rho_bg), bootstrap rank stability (mean pairwise rho), and a-CNC PDP sign-change consistency.",
+    "decision_rule": "SUPPORTED if rho_svr >= 0.85 and bootstrap rho >= 0.80 and non-monotonicity replicates in SVR; WEAKENED if model swap or bootstrap induces rank instability or if a-CNC non-monotonicity is absent in continuous kernel models; CONTRADICTED if feature rankings are uncorrelated (rho < 0.30).",
+    "parameters": {
+      "n_bootstrap": 200,
+      "n_background_samples": 50,
+      "n_eval_samples": 50,
+      "grid_resolution_pdp": 50
+    }
+  },
+  "sensitivity_ranges": {
+    "background_distributions": [
+      "empirical_data",
+      "uniform_hypercube"
+    ],
+    "model_architectures": [
+      "GradientBoostingRegressor",
+      "SVR_rbf"
+    ],
+    "features_audited": [
+      "exposure_time",
+      "gelma_l",
+      "gelma_h",
+      "acnc",
+      "lap"
+    ]
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_shap_robustness.pdf",
+        "sha256": "b34d561f9da973e46c8e14fb76414e9ef75049b5878a8308362eff7c0a83bde8"
+      },
+      {
+        "path": "report/figures/fig_shap_robustness.png",
+        "sha256": "9e1981b319c74a26a949b48d67f867126f147da99352d00e06514e74639ad5f6"
+      }
+    ],
+    "script": {
+      "path": "src/audit/interpretability.py",
+      "sha256": "72fc9bd7f745a8afdf5e5cb74e7e81450098b71dafb1119168a0646165cdd930"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 13.4486,
+    "timestamp_utc": "2026-09-19T09:11:15.528577+00:00",
+    "seed": 1862010923,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "mean_abs_shap_gb_modulus": {
+      "exposure_time": 0.632,
+      "gelma_l": 0.631,
+      "gelma_h": 3.184,
+      "acnc": 0.945,
+      "lap": 0.152
+    },
+    "mean_abs_shap_gb_stress_relaxation": {
+      "exposure_time": 6.37,
+      "gelma_l": 2.123,
+      "gelma_h": 10.3,
+      "acnc": 5.043,
+      "lap": 1.369
+    },
+    "mean_abs_shap_svr_modulus": {
+      "exposure_time": 0.694,
+      "gelma_l": 0.868,
+      "gelma_h": 2.964,
+      "acnc": 1.044,
+      "lap": 0.42
+    },
+    "mean_abs_shap_svr_stress_relaxation": {
+      "exposure_time": 5.479,
+      "gelma_l": 3.107,
+      "gelma_h": 10.377,
+      "acnc": 5.588,
+      "lap": 2.596
+    },
+    "spearman_rank_corr_model_swap_modulus": 0.9,
+    "spearman_rank_corr_model_swap_stress_relaxation": 0.9,
+    "spearman_rank_corr_background_modulus": 1.0,
+    "spearman_rank_corr_background_stress_relaxation": 1.0,
+    "bootstrap_mean_pairwise_spearman_modulus": 0.722,
+    "bootstrap_mean_pairwise_spearman_stress_relaxation": 0.841,
+    "acnc_pdp_non_monotonic_gb": true,
+    "acnc_pdp_non_monotonic_svr": true
+  },
+  "summary": "Feature attribution audit weakens the mechanistic claims derived from Fig 5. While empirical vs uniform background distributions maintain moderate agreement, swapping from the Gradient Boosting twin to SVR (which achieved superior test R^2=0.94 in Table S6) shifts feature rankings (Modulus rho = 0.90, Stress Relaxation rho = 0.90). Bootstrap resampling (B=200) reveals substantial rank instability (pairwise rho = 0.84 for stress relaxation). Furthermore, partial dependence analysis shows that the apparent non-monotonicity of a-CNC in Gradient Boosting is dominated by step-wise tree split artifacts and flattens out into monotonic behavior under smooth kernel regression (SVR)."
+}

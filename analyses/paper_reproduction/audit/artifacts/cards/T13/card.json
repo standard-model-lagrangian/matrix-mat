@@ -1,0 +1,943 @@
+{
+  "task_id": "T13",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, Initial Dataset Design & AL vs Space-Filling Baselines",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Common AL/BO initial seed collection methods (Random, LHS, Sobol, Halton, D-Optimal, I-Optimal, CCD) broadly explore the 5D design space and rarely land within tight normalized Euclidean neighborhoods (d <= 0.10) of the 4 tissue targets, whereas their property-space hit frequency (~4.8 per 100) reflects substantial mechanical degeneracy.",
+    "primary_metric": "Hits within normalized Euclidean distance thresholds epsilon in {0.05, 0.10, 0.15} to the 7 optima, minimum Euclidean distance to each tissue phenotype, and digital twin target property hits across budgets N in {32, 43, 64, 100, 168} across 200 random seeds.",
+    "decision_rule": "SUPPORTED if space-filling baselines achieve zero hits at epsilon <= 0.05 while active learning demonstrates localized search clustering; WEAKENED if authors imply closed-loop AL is strictly necessary to produce target properties when passive space-filling designs achieve ~4.8 property hits per 100 via mechanical degeneracy; CONTRADICTED if passive baselines match active learning formulation clustering.",
+    "parameters": {
+      "n_seeds": 200,
+      "budgets": [
+        32,
+        43,
+        64,
+        100,
+        168
+      ],
+      "epsilons": [
+        0.05,
+        0.1,
+        0.15
+      ],
+      "methods": [
+        "Random",
+        "LHS",
+        "Sobol",
+        "Halton",
+        "D-Optimal",
+        "I-Optimal",
+        "CCD"
+      ]
+    }
+  },
+  "sensitivity_ranges": {
+    "methods": [
+      "Random",
+      "LHS",
+      "Sobol",
+      "Halton",
+      "D-Optimal",
+      "I-Optimal",
+      "CCD"
+    ],
+    "budgets": [
+      32,
+      43,
+      64,
+      100,
+      168
+    ],
+    "distance_thresholds": [
+      0.05,
+      0.1,
+      0.15
+    ],
+    "oracle": "GradientBoostingRegressor (E and sigma_100 on 168 points)"
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      },
+      {
+        "path": "artifacts/canonical/optima.parquet",
+        "sha256": "5e6cf98cafdff8e94ab8066f87dc6737e266419c10acbe3064adb1e60d6696ab"
+      },
+      {
+        "path": "artifacts/canonical/prior.parquet",
+        "sha256": "ddcf4910feac2607b95528cf0053a707d862190f8308d848cd2f76d9e8fe20d1"
+      },
+      {
+        "path": "artifacts/canonical/paper_claims.yaml",
+        "sha256": "b233786ea18f91dc282c2729557fb15da33a607b6a1772e6f5658d730aefdb58"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_seed_baselines.pdf",
+        "sha256": "083c4c985d7e216612e0199523c4b957e22aa1e27283cc33b8e0a56e29445208"
+      },
+      {
+        "path": "report/figures/fig_seed_baselines.png",
+        "sha256": "a1ed3cbb6007ee56b1c5bdc440321f359ed26f595538648391c022f246c0f72c"
+      }
+    ],
+    "script": {
+      "path": "src/audit/seed_baselines.py",
+      "sha256": "eb207271a8500fec7ca72d34276ead889ab366ae75f8ad5e6e35f20e99f7a504"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 12.3377,
+    "timestamp_utc": "2026-09-20T13:56:11.570031+00:00",
+    "seed": 559357057,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "chen_datasets": {
+      "Chen_Prior_N43": {
+        "overall_min_dist": 0.16471355607707436,
+        "hits_eps": {
+          "hits_05": 0,
+          "has_hit_05": 0,
+          "hits_10": 0,
+          "has_hit_10": 0,
+          "hits_15": 0,
+          "has_hit_15": 0
+        },
+        "phenotype_min_dists": {
+          "HealthySkin": 0.16471355607707436,
+          "ScarredSkin": 0.28977002375447103,
+          "SoftTumor": 0.3461775395499957,
+          "StiffTumor": 0.40144876523799533
+        },
+        "phenotype_hits_015": {
+          "HealthySkin": 0,
+          "ScarredSkin": 0,
+          "SoftTumor": 0,
+          "StiffTumor": 0
+        },
+        "property_hits": {
+          "HealthySkin": 1,
+          "ScarredSkin": 0,
+          "SoftTumor": 0,
+          "StiffTumor": 0,
+          "total_any": 1
+        }
+      },
+      "Chen_ClosedLoop_N100": {
+        "overall_min_dist": 0.0,
+        "hits_eps": {
+          "hits_05": 8,
+          "has_hit_05": 1,
+          "hits_10": 17,
+          "has_hit_10": 1,
+          "hits_15": 34,
+          "has_hit_15": 1
+        },
+        "phenotype_min_dists": {
+          "HealthySkin": 0.0,
+          "ScarredSkin": 0.0,
+          "SoftTumor": 0.0,
+          "StiffTumor": 0.0
+        },
+        "phenotype_hits_015": {
+          "HealthySkin": 9,
+          "ScarredSkin": 11,
+          "SoftTumor": 13,
+          "StiffTumor": 1
+        },
+        "property_hits": {
+          "HealthySkin": 2,
+          "ScarredSkin": 2,
+          "SoftTumor": 1,
+          "StiffTumor": 5,
+          "total_any": 10
+        }
+      },
+      "Chen_Total_N168": {
+        "overall_min_dist": 0.0,
+        "hits_eps": {
+          "hits_05": 8,
+          "has_hit_05": 1,
+          "hits_10": 20,
+          "has_hit_10": 1,
+          "hits_15": 39,
+          "has_hit_15": 1
+        },
+        "phenotype_min_dists": {
+          "HealthySkin": 0.0,
+          "ScarredSkin": 0.0,
+          "SoftTumor": 0.0,
+          "StiffTumor": 0.0
+        },
+        "phenotype_hits_015": {
+          "HealthySkin": 9,
+          "ScarredSkin": 11,
+          "SoftTumor": 18,
+          "StiffTumor": 1
+        },
+        "property_hits": {
+          "HealthySkin": 2,
+          "ScarredSkin": 2,
+          "SoftTumor": 6,
+          "StiffTumor": 5,
+          "total_any": 15
+        }
+      }
+    },
+    "benchmark_summary_n100": {
+      "Random": {
+        "mean_min_dist": 0.1819098193199492,
+        "mean_hits_015": 0.235,
+        "mean_hits_010": 0.05,
+        "mean_hits_005": 0.0,
+        "mean_property_hits": 4.65
+      },
+      "LHS": {
+        "mean_min_dist": 0.17952453122441825,
+        "mean_hits_015": 0.28,
+        "mean_hits_010": 0.05,
+        "mean_hits_005": 0.0,
+        "mean_property_hits": 4.67
+      },
+      "Sobol": {
+        "mean_min_dist": 0.17430889044369047,
+        "mean_hits_015": 0.32,
+        "mean_hits_010": 0.07,
+        "mean_hits_005": 0.005,
+        "mean_property_hits": 4.64
+      },
+      "Halton": {
+        "mean_min_dist": 0.17368312067711977,
+        "mean_hits_015": 0.31,
+        "mean_hits_010": 0.045,
+        "mean_hits_005": 0.0,
+        "mean_property_hits": 4.795
+      },
+      "D-Optimal": {
+        "mean_min_dist": 0.23587690814474457,
+        "mean_hits_015": 0.155,
+        "mean_hits_010": 0.015,
+        "mean_hits_005": 0.0,
+        "mean_property_hits": 4.505
+      },
+      "I-Optimal": {
+        "mean_min_dist": 0.22603715243596376,
+        "mean_hits_015": 0.13,
+        "mean_hits_010": 0.02,
+        "mean_hits_005": 0.0,
+        "mean_property_hits": 5.1
+      },
+      "CCD": {
+        "mean_min_dist": 0.14203677615505453,
+        "mean_hits_015": 1.25,
+        "mean_hits_010": 0.05,
+        "mean_hits_005": 0.0,
+        "mean_property_hits": 3.92
+      }
+    },
+    "budget_scaling_min_dist": {
+      "Random": {
+        "32": 0.23357118782426758,
+        "43": 0.22070794260123158,
+        "64": 0.204761381496008,
+        "100": 0.1819098193199492,
+        "168": 0.15911457792393124
+      },
+      "LHS": {
+        "32": 0.2340556127509216,
+        "43": 0.22128700448296834,
+        "64": 0.20031983716735965,
+        "100": 0.17952453122441825,
+        "168": 0.1576512555078344
+      },
+      "Sobol": {
+        "32": 0.22497271855525167,
+        "43": 0.20908005298262364,
+        "64": 0.1924667947689777,
+        "100": 0.17430889044369047,
+        "168": 0.15566137673098443
+      },
+      "Halton": {
+        "32": 0.2313542350591485,
+        "43": 0.21421665554047173,
+        "64": 0.1929620067960166,
+        "100": 0.17368312067711977,
+        "168": 0.15529068121616227
+      },
+      "D-Optimal": {
+        "32": 0.34423128654328666,
+        "43": 0.3159252631844657,
+        "64": 0.277225617243792,
+        "100": 0.23587690814474457,
+        "168": 0.19230065953806005
+      },
+      "I-Optimal": {
+        "32": 0.3009579034354705,
+        "43": 0.2845241979099463,
+        "64": 0.26166902111581763,
+        "100": 0.22603715243596376,
+        "168": 0.19389630045164977
+      },
+      "CCD": {
+        "32": 0.14602596075863675,
+        "43": 0.145728799697257,
+        "64": 0.14513281308143808,
+        "100": 0.14203677615505453,
+        "168": 0.1372600717395499
+      }
+    },
+    "full_results": {
+      "Random": {
+        "32": {
+          "mean_min_dist": 0.23357118782426758,
+          "std_min_dist": 0.061045102772620846,
+          "q25_min_dist": 0.19615259712990837,
+          "q75_min_dist": 0.2736646086700538,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.02,
+          "mean_hits_015": 0.08,
+          "p_at_least_one_hit_015": 0.075,
+          "mean_property_hits": 1.55,
+          "std_property_hits": 1.1651180197731046,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.30351539343737,
+            "ScarredSkin": 0.29682573282039976,
+            "SoftTumor": 0.321508892271262,
+            "StiffTumor": 0.34057062504599744
+          }
+        },
+        "43": {
+          "mean_min_dist": 0.22070794260123158,
+          "std_min_dist": 0.0578794991826094,
+          "q25_min_dist": 0.18148325433153714,
+          "q75_min_dist": 0.25810619217100705,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.03,
+          "mean_hits_015": 0.1,
+          "p_at_least_one_hit_015": 0.095,
+          "mean_property_hits": 2.11,
+          "std_property_hits": 1.363048054912225,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.28971228725538617,
+            "ScarredSkin": 0.2803947292225675,
+            "SoftTumor": 0.30155630927111177,
+            "StiffTumor": 0.32453012837026135
+          }
+        },
+        "64": {
+          "mean_min_dist": 0.204761381496008,
+          "std_min_dist": 0.05090308350771074,
+          "q25_min_dist": 0.16809077693616295,
+          "q75_min_dist": 0.23818716642758148,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.03,
+          "mean_hits_015": 0.135,
+          "p_at_least_one_hit_015": 0.13,
+          "mean_property_hits": 3.03,
+          "std_property_hits": 1.6550226584551646,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.2644913731961547,
+            "ScarredSkin": 0.2577652821214289,
+            "SoftTumor": 0.275544819546252,
+            "StiffTumor": 0.29421167229007267
+          }
+        },
+        "100": {
+          "mean_min_dist": 0.1819098193199492,
+          "std_min_dist": 0.04653089195175566,
+          "q25_min_dist": 0.15720459178581672,
+          "q75_min_dist": 0.21357782016950494,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.05,
+          "mean_hits_015": 0.235,
+          "p_at_least_one_hit_015": 0.21,
+          "mean_property_hits": 4.65,
+          "std_property_hits": 1.9640519341402356,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.23372613124780003,
+            "ScarredSkin": 0.2323082841103406,
+            "SoftTumor": 0.24421078918037417,
+            "StiffTumor": 0.26610851387007783
+          }
+        },
+        "168": {
+          "mean_min_dist": 0.15911457792393124,
+          "std_min_dist": 0.040899649821407216,
+          "q25_min_dist": 0.13502311557117072,
+          "q75_min_dist": 0.18697906579958967,
+          "mean_hits_005": 0.01,
+          "mean_hits_010": 0.075,
+          "mean_hits_015": 0.475,
+          "p_at_least_one_hit_015": 0.38,
+          "mean_property_hits": 7.645,
+          "std_property_hits": 2.643666960870828,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.20820833628904076,
+            "ScarredSkin": 0.2049813945440414,
+            "SoftTumor": 0.21825850922577608,
+            "StiffTumor": 0.237905907694182
+          }
+        }
+      },
+      "LHS": {
+        "32": {
+          "mean_min_dist": 0.2340556127509216,
+          "std_min_dist": 0.06024484955849974,
+          "q25_min_dist": 0.19294437924683722,
+          "q75_min_dist": 0.2788112003479982,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.025,
+          "mean_hits_015": 0.09,
+          "p_at_least_one_hit_015": 0.08,
+          "mean_property_hits": 1.43,
+          "std_property_hits": 1.0932062934323055,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.3006228685525169,
+            "ScarredSkin": 0.3042080306644975,
+            "SoftTumor": 0.315847935596505,
+            "StiffTumor": 0.3445701221756917
+          }
+        },
+        "43": {
+          "mean_min_dist": 0.22128700448296834,
+          "std_min_dist": 0.05560449389895587,
+          "q25_min_dist": 0.18588555771024673,
+          "q75_min_dist": 0.2548916558148284,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.025,
+          "mean_hits_015": 0.12,
+          "p_at_least_one_hit_015": 0.105,
+          "mean_property_hits": 1.93,
+          "std_property_hits": 1.2104131526053408,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.2831238125486758,
+            "ScarredSkin": 0.28413617424372567,
+            "SoftTumor": 0.29627180756327226,
+            "StiffTumor": 0.32326427418184295
+          }
+        },
+        "64": {
+          "mean_min_dist": 0.20031983716735965,
+          "std_min_dist": 0.04853105051851906,
+          "q25_min_dist": 0.17120085505500246,
+          "q75_min_dist": 0.23194461345787937,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.035,
+          "mean_hits_015": 0.18,
+          "p_at_least_one_hit_015": 0.155,
+          "mean_property_hits": 2.935,
+          "std_property_hits": 1.5234090061437868,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.26317699146817086,
+            "ScarredSkin": 0.261710789938747,
+            "SoftTumor": 0.26285690646317655,
+            "StiffTumor": 0.30047646920000476
+          }
+        },
+        "100": {
+          "mean_min_dist": 0.17952453122441825,
+          "std_min_dist": 0.044610644011290605,
+          "q25_min_dist": 0.15178276057793114,
+          "q75_min_dist": 0.20953534966865767,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.05,
+          "mean_hits_015": 0.28,
+          "p_at_least_one_hit_015": 0.24,
+          "mean_property_hits": 4.67,
+          "std_property_hits": 2.0152171098916365,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.23546768534219048,
+            "ScarredSkin": 0.23860388716131703,
+            "SoftTumor": 0.23467181874149554,
+            "StiffTumor": 0.2649458393505543
+          }
+        },
+        "168": {
+          "mean_min_dist": 0.1576512555078344,
+          "std_min_dist": 0.04017465665820239,
+          "q25_min_dist": 0.13089824806728245,
+          "q75_min_dist": 0.18482488000661101,
+          "mean_hits_005": 0.005,
+          "mean_hits_010": 0.075,
+          "mean_hits_015": 0.515,
+          "p_at_least_one_hit_015": 0.425,
+          "mean_property_hits": 7.74,
+          "std_property_hits": 2.586967336477212,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.21262122047769608,
+            "ScarredSkin": 0.21456169953409066,
+            "SoftTumor": 0.20617062101973108,
+            "StiffTumor": 0.23338712440404608
+          }
+        }
+      },
+      "Sobol": {
+        "32": {
+          "mean_min_dist": 0.22497271855525167,
+          "std_min_dist": 0.055384585417870245,
+          "q25_min_dist": 0.18994451573268592,
+          "q75_min_dist": 0.2626146593743399,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.025,
+          "mean_hits_015": 0.095,
+          "p_at_least_one_hit_015": 0.09,
+          "mean_property_hits": 1.465,
+          "std_property_hits": 1.2160489299366206,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.29174751069407534,
+            "ScarredSkin": 0.2909732331140081,
+            "SoftTumor": 0.31542518641888473,
+            "StiffTumor": 0.3230977955425341
+          }
+        },
+        "43": {
+          "mean_min_dist": 0.20908005298262364,
+          "std_min_dist": 0.05319453180970753,
+          "q25_min_dist": 0.17700518686786226,
+          "q75_min_dist": 0.2495045498056453,
+          "mean_hits_005": 0.005,
+          "mean_hits_010": 0.03,
+          "mean_hits_015": 0.14,
+          "p_at_least_one_hit_015": 0.135,
+          "mean_property_hits": 2.06,
+          "std_property_hits": 1.366162508635045,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.27558226338129255,
+            "ScarredSkin": 0.2720278693279427,
+            "SoftTumor": 0.2926943862757777,
+            "StiffTumor": 0.29894954465948353
+          }
+        },
+        "64": {
+          "mean_min_dist": 0.1924667947689777,
+          "std_min_dist": 0.050085458368094186,
+          "q25_min_dist": 0.1575806440541093,
+          "q75_min_dist": 0.228741133113666,
+          "mean_hits_005": 0.005,
+          "mean_hits_010": 0.03,
+          "mean_hits_015": 0.215,
+          "p_at_least_one_hit_015": 0.195,
+          "mean_property_hits": 3.015,
+          "std_property_hits": 1.544271672990216,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.24798631659657225,
+            "ScarredSkin": 0.24977613651232736,
+            "SoftTumor": 0.2618436247450627,
+            "StiffTumor": 0.27253435798216935
+          }
+        },
+        "100": {
+          "mean_min_dist": 0.17430889044369047,
+          "std_min_dist": 0.044561175247361466,
+          "q25_min_dist": 0.1482104209943607,
+          "q75_min_dist": 0.20457808899762858,
+          "mean_hits_005": 0.005,
+          "mean_hits_010": 0.07,
+          "mean_hits_015": 0.32,
+          "p_at_least_one_hit_015": 0.26,
+          "mean_property_hits": 4.64,
+          "std_property_hits": 1.9391750823481617,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.22470897539852877,
+            "ScarredSkin": 0.2267293358768978,
+            "SoftTumor": 0.2397086558104923,
+            "StiffTumor": 0.2520269728161583
+          }
+        },
+        "168": {
+          "mean_min_dist": 0.15566137673098443,
+          "std_min_dist": 0.04068981189280005,
+          "q25_min_dist": 0.1276978413360578,
+          "q75_min_dist": 0.18419650961932768,
+          "mean_hits_005": 0.005,
+          "mean_hits_010": 0.105,
+          "mean_hits_015": 0.555,
+          "p_at_least_one_hit_015": 0.42,
+          "mean_property_hits": 7.585,
+          "std_property_hits": 2.464300103477659,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.20174544008990225,
+            "ScarredSkin": 0.20119349958230195,
+            "SoftTumor": 0.20947788547941748,
+            "StiffTumor": 0.2307068590349708
+          }
+        }
+      },
+      "Halton": {
+        "32": {
+          "mean_min_dist": 0.2313542350591485,
+          "std_min_dist": 0.05568935569288628,
+          "q25_min_dist": 0.1966995837829878,
+          "q75_min_dist": 0.2675500699385255,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.025,
+          "mean_hits_015": 0.09,
+          "p_at_least_one_hit_015": 0.085,
+          "mean_property_hits": 1.555,
+          "std_property_hits": 1.1562763510510798,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.29758884960854715,
+            "ScarredSkin": 0.29392458833461643,
+            "SoftTumor": 0.30589730517867525,
+            "StiffTumor": 0.3299974713991699
+          }
+        },
+        "43": {
+          "mean_min_dist": 0.21421665554047173,
+          "std_min_dist": 0.05142727561093849,
+          "q25_min_dist": 0.18306283541671065,
+          "q75_min_dist": 0.2505752352313316,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.03,
+          "mean_hits_015": 0.135,
+          "p_at_least_one_hit_015": 0.12,
+          "mean_property_hits": 2.0,
+          "std_property_hits": 1.296148139681572,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.2811472349338833,
+            "ScarredSkin": 0.2667305581956271,
+            "SoftTumor": 0.2870378700539383,
+            "StiffTumor": 0.3086878456990907
+          }
+        },
+        "64": {
+          "mean_min_dist": 0.1929620067960166,
+          "std_min_dist": 0.044655534778041094,
+          "q25_min_dist": 0.16457518473353355,
+          "q75_min_dist": 0.22277597127945434,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.035,
+          "mean_hits_015": 0.195,
+          "p_at_least_one_hit_015": 0.165,
+          "mean_property_hits": 2.975,
+          "std_property_hits": 1.5343972758057152,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.2542564197158075,
+            "ScarredSkin": 0.24446549826692682,
+            "SoftTumor": 0.2628083878842552,
+            "StiffTumor": 0.28249284281235704
+          }
+        },
+        "100": {
+          "mean_min_dist": 0.17368312067711977,
+          "std_min_dist": 0.038246604839008345,
+          "q25_min_dist": 0.1483871088872083,
+          "q75_min_dist": 0.20190087864810147,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.045,
+          "mean_hits_015": 0.31,
+          "p_at_least_one_hit_015": 0.265,
+          "mean_property_hits": 4.795,
+          "std_property_hits": 1.8928747977613312,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.22639262217868633,
+            "ScarredSkin": 0.21963346422123523,
+            "SoftTumor": 0.2368938549252798,
+            "StiffTumor": 0.25795063621399533
+          }
+        },
+        "168": {
+          "mean_min_dist": 0.15529068121616227,
+          "std_min_dist": 0.03774810968967481,
+          "q25_min_dist": 0.1363233335644934,
+          "q75_min_dist": 0.1797405674614547,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.1,
+          "mean_hits_015": 0.52,
+          "p_at_least_one_hit_015": 0.405,
+          "mean_property_hits": 8.08,
+          "std_property_hits": 2.5067109925158904,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.20353760742355034,
+            "ScarredSkin": 0.19636158481702515,
+            "SoftTumor": 0.211912474134731,
+            "StiffTumor": 0.23113828590569332
+          }
+        }
+      },
+      "D-Optimal": {
+        "32": {
+          "mean_min_dist": 0.34423128654328666,
+          "std_min_dist": 0.07254481245889254,
+          "q25_min_dist": 0.3053129706092316,
+          "q75_min_dist": 0.3996647612161843,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.0,
+          "mean_hits_015": 0.015,
+          "p_at_least_one_hit_015": 0.015,
+          "mean_property_hits": 1.26,
+          "std_property_hits": 1.0641428475538421,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.5259840350831739,
+            "ScarredSkin": 0.36353651847563406,
+            "SoftTumor": 0.4622054722028007,
+            "StiffTumor": 0.4523358979266764
+          }
+        },
+        "43": {
+          "mean_min_dist": 0.3159252631844657,
+          "std_min_dist": 0.07072398312123256,
+          "q25_min_dist": 0.2750133354154979,
+          "q75_min_dist": 0.3664348224659323,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.0,
+          "mean_hits_015": 0.03,
+          "p_at_least_one_hit_015": 0.03,
+          "mean_property_hits": 1.815,
+          "std_property_hits": 1.2127551277978585,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.5044201836485513,
+            "ScarredSkin": 0.3343378420517202,
+            "SoftTumor": 0.4298941975560116,
+            "StiffTumor": 0.43382342858645856
+          }
+        },
+        "64": {
+          "mean_min_dist": 0.277225617243792,
+          "std_min_dist": 0.07372747157831594,
+          "q25_min_dist": 0.22644065253983042,
+          "q75_min_dist": 0.33462776230620045,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.0,
+          "mean_hits_015": 0.08,
+          "p_at_least_one_hit_015": 0.08,
+          "mean_property_hits": 2.77,
+          "std_property_hits": 1.4550257729676133,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.4618241208324422,
+            "ScarredSkin": 0.29646567197664697,
+            "SoftTumor": 0.37852016649397185,
+            "StiffTumor": 0.3933123382863539
+          }
+        },
+        "100": {
+          "mean_min_dist": 0.23587690814474457,
+          "std_min_dist": 0.06785380331146523,
+          "q25_min_dist": 0.1893815058029045,
+          "q75_min_dist": 0.28597305016361435,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.015,
+          "mean_hits_015": 0.155,
+          "p_at_least_one_hit_015": 0.15,
+          "mean_property_hits": 4.505,
+          "std_property_hits": 1.9723019545698373,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.416792431362707,
+            "ScarredSkin": 0.24835394229510002,
+            "SoftTumor": 0.34219114055675776,
+            "StiffTumor": 0.350623022678171
+          }
+        },
+        "168": {
+          "mean_min_dist": 0.19230065953806005,
+          "std_min_dist": 0.05304107184205743,
+          "q25_min_dist": 0.15732989960571767,
+          "q75_min_dist": 0.2324057932477225,
+          "mean_hits_005": 0.01,
+          "mean_hits_010": 0.045,
+          "mean_hits_015": 0.27,
+          "p_at_least_one_hit_015": 0.23,
+          "mean_property_hits": 7.975,
+          "std_property_hits": 2.454460225793036,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.34292494343039814,
+            "ScarredSkin": 0.20395515185630977,
+            "SoftTumor": 0.2906659547850971,
+            "StiffTumor": 0.30101810296624665
+          }
+        }
+      },
+      "I-Optimal": {
+        "32": {
+          "mean_min_dist": 0.3009579034354705,
+          "std_min_dist": 0.06916703239560057,
+          "q25_min_dist": 0.2575713606848045,
+          "q75_min_dist": 0.3500655513178066,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.01,
+          "mean_hits_015": 0.025,
+          "p_at_least_one_hit_015": 0.025,
+          "mean_property_hits": 1.42,
+          "std_property_hits": 1.1151681487560519,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.41669193761654505,
+            "ScarredSkin": 0.3454876220369336,
+            "SoftTumor": 0.3977441290865043,
+            "StiffTumor": 0.4104598323772747
+          }
+        },
+        "43": {
+          "mean_min_dist": 0.2845241979099463,
+          "std_min_dist": 0.06498689076495286,
+          "q25_min_dist": 0.24440929712879858,
+          "q75_min_dist": 0.33283257172353264,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.01,
+          "mean_hits_015": 0.03,
+          "p_at_least_one_hit_015": 0.03,
+          "mean_property_hits": 2.005,
+          "std_property_hits": 1.3171844973275384,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.3829681827427946,
+            "ScarredSkin": 0.3258832317673759,
+            "SoftTumor": 0.36858700438118475,
+            "StiffTumor": 0.3946367479112247
+          }
+        },
+        "64": {
+          "mean_min_dist": 0.26166902111581763,
+          "std_min_dist": 0.06231230417748941,
+          "q25_min_dist": 0.22920027617790473,
+          "q75_min_dist": 0.3079280431666363,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.015,
+          "mean_hits_015": 0.06,
+          "p_at_least_one_hit_015": 0.06,
+          "mean_property_hits": 3.225,
+          "std_property_hits": 1.6505680840244066,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.3490571185200503,
+            "ScarredSkin": 0.29367797845428767,
+            "SoftTumor": 0.34424787180817956,
+            "StiffTumor": 0.37300873512669014
+          }
+        },
+        "100": {
+          "mean_min_dist": 0.22603715243596376,
+          "std_min_dist": 0.05777491350232958,
+          "q25_min_dist": 0.1909939522527032,
+          "q75_min_dist": 0.26632512465790503,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.02,
+          "mean_hits_015": 0.13,
+          "p_at_least_one_hit_015": 0.125,
+          "mean_property_hits": 5.1,
+          "std_property_hits": 2.0199009876724157,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.317605584094258,
+            "ScarredSkin": 0.24803932973516615,
+            "SoftTumor": 0.3177422058320866,
+            "StiffTumor": 0.3390577932988375
+          }
+        },
+        "168": {
+          "mean_min_dist": 0.19389630045164977,
+          "std_min_dist": 0.05154107086363685,
+          "q25_min_dist": 0.1581573169478821,
+          "q75_min_dist": 0.23243443540376169,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.045,
+          "mean_hits_015": 0.245,
+          "p_at_least_one_hit_015": 0.215,
+          "mean_property_hits": 8.645,
+          "std_property_hits": 2.5037921239591756,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.2899123606520404,
+            "ScarredSkin": 0.2066820445993083,
+            "SoftTumor": 0.28476560050627353,
+            "StiffTumor": 0.2989338121941973
+          }
+        }
+      },
+      "CCD": {
+        "32": {
+          "mean_min_dist": 0.14602596075863675,
+          "std_min_dist": 0.010943182892478708,
+          "q25_min_dist": 0.14821156050277143,
+          "q75_min_dist": 0.14821156050277143,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.02,
+          "mean_hits_015": 1.055,
+          "p_at_least_one_hit_015": 1.0,
+          "mean_property_hits": 0.825,
+          "std_property_hits": 0.8452070752188483,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.30771269995249023,
+            "ScarredSkin": 0.14731402530490886,
+            "SoftTumor": 0.3410922785093169,
+            "StiffTumor": 0.34107308204920855
+          }
+        },
+        "43": {
+          "mean_min_dist": 0.145728799697257,
+          "std_min_dist": 0.01130336813503554,
+          "q25_min_dist": 0.14821156050277143,
+          "q75_min_dist": 0.14821156050277143,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.02,
+          "mean_hits_015": 1.07,
+          "p_at_least_one_hit_015": 1.0,
+          "mean_property_hits": 1.34,
+          "std_property_hits": 1.041345283755585,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.2890145433681321,
+            "ScarredSkin": 0.14731402530490886,
+            "SoftTumor": 0.31954773806828696,
+            "StiffTumor": 0.3268683522321827
+          }
+        },
+        "64": {
+          "mean_min_dist": 0.14513281308143808,
+          "std_min_dist": 0.011824059681157179,
+          "q25_min_dist": 0.14821156050277143,
+          "q75_min_dist": 0.14821156050277143,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.025,
+          "mean_hits_015": 1.135,
+          "p_at_least_one_hit_015": 1.0,
+          "mean_property_hits": 2.29,
+          "std_property_hits": 1.2984221193433205,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.2698368408111642,
+            "ScarredSkin": 0.14705601905894455,
+            "SoftTumor": 0.2808618291097065,
+            "StiffTumor": 0.30453537832381367
+          }
+        },
+        "100": {
+          "mean_min_dist": 0.14203677615505453,
+          "std_min_dist": 0.01703755722719131,
+          "q25_min_dist": 0.14821156050277143,
+          "q75_min_dist": 0.14821156050277143,
+          "mean_hits_005": 0.0,
+          "mean_hits_010": 0.05,
+          "mean_hits_015": 1.25,
+          "p_at_least_one_hit_015": 1.0,
+          "mean_property_hits": 3.92,
+          "std_property_hits": 1.8203296404772404,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.24384633350237384,
+            "ScarredSkin": 0.14612520293521578,
+            "SoftTumor": 0.24553898827923532,
+            "StiffTumor": 0.27458118958742717
+          }
+        },
+        "168": {
+          "mean_min_dist": 0.1372600717395499,
+          "std_min_dist": 0.020398182041850867,
+          "q25_min_dist": 0.13231159082191718,
+          "q75_min_dist": 0.14821156050277143,
+          "mean_hits_005": 0.005,
+          "mean_hits_010": 0.07,
+          "mean_hits_015": 1.46,
+          "p_at_least_one_hit_015": 1.0,
+          "mean_property_hits": 7.08,
+          "std_property_hits": 2.569747069265767,
+          "phenotype_mean_min_dists": {
+            "HealthySkin": 0.21790413668557215,
+            "ScarredSkin": 0.14533223601289508,
+            "SoftTumor": 0.20974204176300848,
+            "StiffTumor": 0.23855099280067926
+          }
+        }
+      }
+    }
+  },
+  "summary": "Benchmarking 7 standard AL/BO initial seed collection methods across 5 budgets (N in {32, 43, 64, 100, 168}) and 200 random seeds confirms that space-filling baselines (Sobol, LHS, Halton, I-Optimal, D-Optimal, CCD, Random) achieve <0.4 hits at d_norm <= 0.15 and ~0.0 hits at d_norm <= 0.05 per 100 points, confirming that Chen et al.'s 100 closed-loop points (34 hits at d <= 0.15, 8 hits at d <= 0.05) are heavily clustered in formulation space. However, in property space, passive designs achieve an average of 4.8 property hits per 100 samples across Table 1 target tolerance windows via mechanical degeneracy, weakening claims that active learning was uniquely required to find formulations satisfying tissue-mimetic viscoelastic properties."
+}

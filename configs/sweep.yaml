@@ -1,5 +1,5 @@
 # Master Configuration for Multi-Run Spheroid IF Segmentation Sweep
-data_dir: "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
+data_dir: "${DATA_ROOT}/if"
 runs_dir: "runs"
 allow_unpaired: true
 overwrite: false

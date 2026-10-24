@@ -1,0 +1,3 @@
+condition,n_images_t0,n_images_t7,n_objects_total,n_matched_pairs,n_pass_pairs,n_denominator_excluded,n_review_pairs,n_gels,n_spheroids,analysis_population,v0_median_um3,v0_iqr_um3,v7_median_um3,v7_iqr_um3,delta_v_median_um3,fold_change_median,fold_change_iqr,fold_change_mean,fold_change_std,log2fc_median,ci_method,bootstrap_ci_95_low,bootstrap_ci_95_high,p_raw,p_adj,p_adj_method,min_achievable_p,permutation_p_vs_control,significance,backend_counts
+Mat,1,1,2,1,0,0,1,1,0,PASS,,,,,,,,,,,none,,,,,holm,,,control,classical:2
+S34D30,1,1,2,1,0,0,1,1,0,PASS,,,,,,,,,,,none,,,,,holm,,,n/a,classical:2

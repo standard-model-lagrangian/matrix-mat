@@ -14,8 +14,8 @@
 # ------------------------------------------------------------------------------
 # Paths can be relative to the repository root or absolute.
 # Note: Folder names containing spaces are fully supported.
-t0_dir: "Experimental data /Chuling cells/Spheroid Day0 260805"
-t7_dir: "Experimental data /Chuling cells/Spheroid D7 260812"
+t0_dir: "${DATA_ROOT}/brightfield/Day0"
+t7_dir: "${DATA_ROOT}/brightfield/Day7"
 
 # Output directory where all CSVs, overlays, contact sheets, and figures are written
 output_dir: "output"
@@ -65,8 +65,9 @@ preprocess:
 # 4. Segmentation Hierarchy & Disk Caching
 # ------------------------------------------------------------------------------
 segmentation:
-  # Primary segmentation backend: 'cpsam' (Cellpose-SAM), 'cellpose' (cyto3), or 'classical'
-  backend: "cpsam"
+  # Primary segmentation backend: 'cpsam' (Cellpose-SAM), 'cpdino' (Cellpose foundation), or 'classical'
+  primary_backend: "cpsam"
+  fallback_policy: "strict"  # 'strict' (default, fails/flags image on empty/implausible mask) or 'per_image' (opt-in exploration)
 
   # Path to local Cellpose-SAM model weights (bypasses online HuggingFace downloads)
   cpsam_model_path: "models/cpsam_v2"
@@ -92,12 +93,6 @@ segmentation:
   # Minimum Euclidean distance (pixels) between regional maxima in watershed
   watershed_min_distance_px: 25
 
-  # OpenCV Hough Circle detection fallback
-  # Triggers if classical segmentation yields 0 candidate objects
-  hough_fallback_enabled: true
-  hough_min_radius_um: 25.0
-  hough_max_radius_um: 600.0
-
 # ------------------------------------------------------------------------------
 # 5. Quality Control (QC) Gating Protocol (Zero Silent Drops)
 # ------------------------------------------------------------------------------
@@ -121,12 +116,12 @@ qc:
   # Annular ring background contrast check:
   # Spheroids in brightfield are darker than their surrounding gel background.
   # A mask must satisfy: I_interior <= ring_contrast_factor * I_annular_ring
-  ring_width_px: 15
+  background_ring_dilation_px: 15
   ring_contrast_factor: 0.90  # Must be at least 10% darker than background ring
 
   # Plausibility threshold: maximum fraction of field-of-view (FOV) area a single mask may occupy
   # Prevents giant single-mask hallucination artifacts (>25% FOV is flagged FAIL)
-  max_single_mask_area_fraction: 0.25
+  single_mask_max_area_pct: 0.25
 
   # Minimum circularity threshold: 4 * pi * Area / Perimeter^2
   # Objects with circularity below this threshold are flagged REVIEW (not FAIL)
@@ -162,7 +157,7 @@ stats:
 
   # Denominator gate: minimum Day 0 diameter (um) required to compute fold change (V7 / V0).
   # Pairs with d0 < 60 um are excluded from fold-change stats to prevent near-zero debris inflation.
-  min_denominator_d0_um: 60.0
+  min_t0_d_um_denominator: 60.0
 
   # Trajectory bounds for fold change (V7 / V0):
   # Fold change outside [min_fold_change, max_fold_change] is flagged REVIEW
