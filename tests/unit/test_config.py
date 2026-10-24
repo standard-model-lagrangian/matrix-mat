@@ -33,6 +33,8 @@ from spheroid_if_sweep.config import (
     IFFeaturesConfig,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 # ---------------------------------------------------------------------------
 # 1. Unknown Key Rejection (extra="forbid")
@@ -141,7 +143,7 @@ def _collect_ast_accessed_names(root_dirs: list[str | Path]) -> Set[str]:
 
 def test_every_config_field_is_read_somewhere():
     """Every defined config field must be read as an attribute or key in production code."""
-    accessed = _collect_ast_accessed_names(["src/matrix_mat", "spheroid_pipeline_v2", "spheroid_if_sweep"])
+    accessed = _collect_ast_accessed_names([str(REPO_ROOT / d) for d in ("src/matrix_mat", "spheroid_pipeline_v2", "spheroid_if_sweep")])
 
     # Exclude intentional backward-compatibility alias attributes
     KNOWN_ALIASES = {
@@ -191,10 +193,10 @@ def test_every_config_field_is_read_somewhere():
 @pytest.mark.parametrize(
     "yaml_path,expected_schema",
     [
-        ("configs/spheroid_brightfield.yaml", PipelineConfig),
-        ("configs/sweep.yaml", IFSweepConfig),
-        ("configs/prepost_ablation.yaml", IFSweepConfig),
-        ("configs/robustness_check.yaml", IFSweepConfig),
+        (str(REPO_ROOT / "configs/spheroid_brightfield.yaml"), PipelineConfig),
+        (str(REPO_ROOT / "configs/sweep.yaml"), IFSweepConfig),
+        (str(REPO_ROOT / "configs/prepost_ablation.yaml"), IFSweepConfig),
+        (str(REPO_ROOT / "configs/robustness_check.yaml"), IFSweepConfig),
     ],
 )
 def test_shipped_configs_validate(yaml_path, expected_schema):
@@ -217,7 +219,7 @@ def test_metadata_reflects_effective_steps(tmp_path, monkeypatch):
     from spheroid_if_sweep import preprocess as if_pre
     from spheroid_if_sweep.config import IFSweepConfig
 
-    cfg = IFSweepConfig.from_yaml("configs/sweep.yaml")
+    cfg = IFSweepConfig.from_yaml(str(REPO_ROOT / "configs/sweep.yaml"))
     # In sweep.yaml, baseline runs have preprocessing disabled
     assert cfg.preprocessing.enabled is False
     for combo in cfg.combos:
@@ -266,3 +268,57 @@ def test_run_metadata_embeds_full_resolved_config(tmp_path):
     assert "segmentation" in saved_cfg
     assert "qc" in saved_cfg
     assert "pairing" in saved_cfg
+
+
+def test_yaml_path_placeholders_follow_environment(tmp_path, monkeypatch):
+    """Model, cache and data paths in the shipped YAML resolve from MATRIX_MAT_* env vars, not the cwd."""
+    from matrix_mat.brightfield.config import PipelineConfig as BFConfig
+
+    repo = Path(__file__).resolve().parents[2]
+    monkeypatch.setenv("MATRIX_MAT_DATA_ROOT", str(tmp_path / "data"))
+    monkeypatch.setenv("MATRIX_MAT_MODELS_ROOT", str(tmp_path / "models"))
+    monkeypatch.setenv("MATRIX_MAT_OUTPUT_ROOT", str(tmp_path / "out"))
+    monkeypatch.delenv("MATRIX_MAT_CACHE_DIR", raising=False)
+    cfg = BFConfig.from_yaml(repo / "configs" / "spheroid_brightfield.yaml")
+    assert cfg.segmentation.cpsam_model_path == str(tmp_path / "models" / "cpsam_v2")
+    assert cfg.segmentation.cache_dir == str(tmp_path / "out" / "cache" / "masks")
+    assert cfg.output_dir == str(tmp_path / "out")
+    assert cfg.t0_dir.startswith(str(tmp_path / "data"))
+    assert cfg.review_dir.startswith(str(tmp_path / "data"))
+
+
+def test_shipped_yaml_has_no_cwd_relative_paths():
+    """Every path-valued key in the shipped brightfield YAML must use a ${...} root placeholder."""
+    import yaml as _yaml
+
+    repo = Path(__file__).resolve().parents[2]
+    data = _yaml.safe_load((repo / "configs" / "spheroid_brightfield.yaml").read_text())
+    paths = {
+        "t0_dir": data["t0_dir"],
+        "t7_dir": data["t7_dir"],
+        "output_dir": data["output_dir"],
+        "review_dir": data["review_dir"],
+        "segmentation.cpsam_model_path": data["segmentation"]["cpsam_model_path"],
+        "segmentation.cache_dir": data["segmentation"]["cache_dir"],
+    }
+    bad = {k: v for k, v in paths.items() if not str(v).startswith("${")}
+    assert not bad, f"cwd-relative paths in shipped config: {bad}"
+
+
+def test_review_manager_does_not_create_missing_input_dir(tmp_path):
+    from matrix_mat.brightfield.review import ReviewManager
+
+    target = tmp_path / "no_reviews_here"
+    ReviewManager(target)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("name", ["sweep.yaml", "prepost_ablation.yaml", "robustness_check.yaml"])
+def test_if_configs_resolve_paths_from_environment(name, tmp_path, monkeypatch):
+    monkeypatch.setenv("MATRIX_MAT_DATA_ROOT", str(tmp_path / "d"))
+    monkeypatch.setenv("MATRIX_MAT_OUTPUT_ROOT", str(tmp_path / "o"))
+    monkeypatch.setenv("MATRIX_MAT_MODELS_ROOT", str(tmp_path / "m"))
+    cfg = IFSweepConfig.from_yaml(REPO_ROOT / "configs" / name)
+    assert str(cfg.data_dir).startswith(str(tmp_path / "d"))
+    assert str(cfg.runs_dir) == str(tmp_path / "o" / "runs")
+    assert str(cfg.model.pretrained_model) == str(tmp_path / "m" / "cpsam_v2")

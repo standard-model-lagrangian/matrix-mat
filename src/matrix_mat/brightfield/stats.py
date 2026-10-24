@@ -70,6 +70,8 @@ CONDITION_SUMMARY_COLUMNS: List[str] = [
     "fold_change_std",
     "log2fc_median",
     "ci_method",
+    "log2fc_ci_95_low",
+    "log2fc_ci_95_high",
     "bootstrap_ci_95_low",
     "bootstrap_ci_95_high",
     "p_raw",
@@ -161,10 +163,10 @@ def get_significance_stars(p_value: float) -> str:
       p < 0.01:   '**'
       p < 0.05:   '*'
       p >= 0.05:  'ns'
-      NaN:        'n/a'
+      NaN:        'untested'
     """
     if p_value is None or np.isnan(p_value):
-        return "n/a"
+        return "untested"
     if p_value < 0.0001:
         return "****"
     if p_value < 0.001:
@@ -283,7 +285,6 @@ class PopulationStatsCalculator:
 
             # Cluster / replicate column identification
             cluster_col = "gel" if "gel" in df_pairs.columns else ("replicate" if "replicate" in df_pairs.columns else "fov")
-            n_gels = int(grp_pairs[cluster_col].nunique()) if cluster_col in grp_pairs.columns else int(grp_pairs["fov"].nunique())
 
             # Backend mix calculation
             if "seg_backend" in grp_pairs.columns:
@@ -306,6 +307,8 @@ class PopulationStatsCalculator:
                 analysis_pop = "PASS+REVIEW"
 
             n_spheroids = len(stat_grp)
+            # Gels that actually contribute to the analysed population (the inferential unit)
+            n_gels = int(stat_grp[cluster_col].nunique()) if cluster_col in stat_grp.columns else 0
 
             # Extract metrics
             v0_vals = stat_grp["t0_volume_sphere_um3"].dropna().values.astype(np.float64) if "t0_volume_sphere_um3" in stat_grp.columns else np.array([], dtype=np.float64)
@@ -332,18 +335,24 @@ class PopulationStatsCalculator:
                 pos_fc = fc_vals[fc_vals > 0]
                 log2fc_med = float(np.median(np.log2(pos_fc))) if len(pos_fc) > 0 else np.nan
 
-                # Hierarchical Bootstrap 95% CI on median FC
-                boot_val_col = "log2_fold_change" if "log2_fold_change" in stat_grp.columns else "fold_change_volume"
-                ci_low, ci_high = hierarchical_bootstrap_ci(
-                    stat_grp,
-                    value_col=boot_val_col,
+                # Hierarchical bootstrap 95% CI on the median log2 FC. Medians commute with the
+                # monotone 2**x transform, so 2**CI is the CI of the median fold change.
+                boot_df = stat_grp.copy()
+                if "log2_fold_change" not in boot_df.columns:
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        boot_df["log2_fold_change"] = np.log2(boot_df["fold_change_volume"].where(boot_df["fold_change_volume"] > 0))
+                log2_ci_low, log2_ci_high = hierarchical_bootstrap_ci(
+                    boot_df,
+                    value_col="log2_fold_change",
                     cluster_col=cluster_col,
                     stat=np.median,
                     n_boot=self.config.bootstrap_iterations,
                     confidence_level=self.config.confidence_level,
                     seed=random_seed,
                 )
-                ci_method = "hierarchical_bootstrap"
+                ci_low = float(2.0 ** log2_ci_low) if not np.isnan(log2_ci_low) else np.nan
+                ci_high = float(2.0 ** log2_ci_high) if not np.isnan(log2_ci_high) else np.nan
+                ci_method = "hierarchical_bootstrap_log2"
             else:
                 v0_med, v0_iqr = np.nan, np.nan
                 v7_med, v7_iqr = np.nan, np.nan
@@ -351,6 +360,7 @@ class PopulationStatsCalculator:
                 fc_med, fc_iqr = np.nan, np.nan
                 fc_mean, fc_std = np.nan, np.nan
                 log2fc_med = np.nan
+                log2_ci_low, log2_ci_high = np.nan, np.nan
                 ci_low, ci_high = np.nan, np.nan
                 ci_method = "none"
 
@@ -377,11 +387,11 @@ class PopulationStatsCalculator:
                     n_perm=self.config.permutation_iterations,
                     seed=random_seed,
                 )
-                signif = get_significance_stars(p_val) if not np.isnan(p_val) else "n/a"
+                signif = get_significance_stars(p_val) if not np.isnan(p_val) else "untested"
             else:
                 p_val = np.nan
                 min_p = np.nan
-                signif = "n/a"
+                signif = "untested"
 
             row = {
                 "condition": cond,
@@ -406,6 +416,8 @@ class PopulationStatsCalculator:
                 "fold_change_std": fc_std,
                 "log2fc_median": log2fc_med,
                 "ci_method": ci_method,
+                "log2fc_ci_95_low": log2_ci_low,
+                "log2fc_ci_95_high": log2_ci_high,
                 "bootstrap_ci_95_low": ci_low,
                 "bootstrap_ci_95_high": ci_high,
                 "p_raw": p_val,
@@ -428,7 +440,7 @@ class PopulationStatsCalculator:
             elif not np.isnan(r["p_adj"]):
                 r["significance"] = get_significance_stars(r["p_adj"])
             else:
-                r["significance"] = "n/a"
+                r["significance"] = "untested"
 
         summary_df = pd.DataFrame(rows, columns=CONDITION_SUMMARY_COLUMNS)
         return summary_df

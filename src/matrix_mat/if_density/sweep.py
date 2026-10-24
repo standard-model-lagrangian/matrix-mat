@@ -171,11 +171,9 @@ def segment_field(
         method=feat_cfg.get("spheroid_extent_method", "actin_threshold"),
         actin_background_percentile=float(feat_cfg.get("actin_background_percentile", 50.0)),
     )
-    sph_vol_um3 = sph_extent[0]
     max_r_um = sph_extent[3]
     sph_area_um2 = np.pi * (max_r_um ** 2) if (max_r_um is not None and not np.isnan(max_r_um) and max_r_um > 0) else float("nan")
     density_areal = compute_areal_density(post_stats.n_final_included, sph_area_um2)
-    density_vol = (float(post_stats.n_final_included) / sph_vol_um3 * 1e9) if (sph_vol_um3 is not None and not np.isnan(sph_vol_um3) and sph_vol_um3 > 0) else float("nan")
 
     raw_nuc_img = tifffile.imread(rec.nuclear_path)
     raw_act_img = tifffile.imread(rec.actin_path)
@@ -191,7 +189,6 @@ def segment_field(
         n_dups_removed=post_stats.n_dedup_removed,
         pixel_size_um=rec.pixel_size_um,
         qc_config=qc_cfg,
-        nuclei_density_per_mm3=density_vol,
         nuclei_per_mm2=density_areal,
         n_nuclei_valid=post_stats.n_final_included,
         n_border_excluded=post_stats.n_border_excluded,
@@ -437,8 +434,10 @@ def run_single_combo(
     run_dir = runs_dir / slug
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    preproc_cfg = combo.get("preprocessing", config.get("preprocessing", {}))
-    postproc_cfg = combo.get("postprocessing", config.get("postprocessing", {}))
+    # A combo without its own section inherits the top-level one; after schema validation the
+    # missing section is present as None, so `.get(key, default)` alone is not enough.
+    preproc_cfg = combo.get("preprocessing") or config.get("preprocessing") or {"enabled": False}
+    postproc_cfg = combo.get("postprocessing") or config.get("postprocessing") or {"enabled": False}
     qc_cfg = config.get("qc", {})
     feat_cfg = config.get("features", {})
 

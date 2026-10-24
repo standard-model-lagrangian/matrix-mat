@@ -7,6 +7,7 @@ Downloads pinned model weights from models.lock.json and validates SHA-256 hashe
 from __future__ import annotations
 
 import argparse
+import os
 import hashlib
 import json
 from pathlib import Path
@@ -14,6 +15,9 @@ import sys
 import urllib.request
 from typing import Dict, Any, Optional
 
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def compute_sha256(path: Path) -> str:
     """Compute SHA-256 hash of a file."""
@@ -72,7 +76,7 @@ def fetch_model(model_name: str, model_info: Dict[str, Any], models_dir: Path) -
     print(f"[*] Downloading {model_name} from {url} to {target_path}...")
     try:
         # Stream download with progress
-        req = urllib.request.Request(url, headers={"User-Agent": "matrix-mat/0.1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "matrix-mat/0.2.0"})
         with urllib.request.urlopen(req) as resp, open(target_path, "wb") as out_f:
             total_size = int(resp.headers.get("content-length", 0))
             downloaded = 0
@@ -104,14 +108,14 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument(
         "--models-dir",
         type=Path,
-        default=Path("models"),
-        help="Directory to store model weights (default: models).",
+        default=None,
+        help="Directory to store model weights (default: $MATRIX_MAT_MODELS_ROOT, else <repo>/models).",
     )
     parser.add_argument(
         "--lock-file",
         type=Path,
-        default=Path("models.lock.json"),
-        help="Path to models.lock.json (default: models.lock.json).",
+        default=REPO_ROOT / "models.lock.json",
+        help="Path to models.lock.json (default: <repo>/models.lock.json).",
     )
     parser.add_argument(
         "--verify-only",
@@ -124,6 +128,9 @@ def main(argv: Optional[list] = None) -> int:
         help="Specific model to fetch or verify (default: all).",
     )
     args = parser.parse_args(argv)
+    if args.models_dir is None:
+        env_root = os.environ.get("MATRIX_MAT_MODELS_ROOT")
+        args.models_dir = Path(env_root) if env_root else REPO_ROOT / "models"
 
     try:
         lock_data = load_lock_file(args.lock_file)

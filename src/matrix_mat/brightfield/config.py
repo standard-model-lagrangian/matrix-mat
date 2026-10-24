@@ -17,6 +17,7 @@ from pydantic.dataclasses import dataclass
 from pydantic import ConfigDict, model_validator
 
 from matrix_mat.core.paths import (
+    expand_root_placeholders,
     resolve_data_root,
     resolve_output_root,
     resolve_models_root,
@@ -24,6 +25,7 @@ from matrix_mat.core.paths import (
 )
 
 logger = logging.getLogger("matrix_mat.brightfield.config")
+
 
 
 @dataclass(config=ConfigDict(extra="forbid"))
@@ -108,6 +110,16 @@ class SegmentationConfig:
         return data
 
     def __post_init__(self):
+        supported = ("cpsam", "cpdino", "classical")
+        for name in ("primary_backend", "fallback_backend", "last_resort_backend"):
+            value = getattr(self, name)
+            if value not in supported:
+                raise ValueError(
+                    f"segmentation.{name}={value!r} is not a supported backend; use one of {supported} "
+                    "(Cellpose 4 has no cyto3 model; its foundation model is 'cpdino')."
+                )
+        if self.fallback_policy not in ("strict", "per_image"):
+            raise ValueError(f"segmentation.fallback_policy must be 'strict' or 'per_image', got {self.fallback_policy!r}")
         # Env variable overrides
         if os.environ.get("MATRIX_MAT_CACHE_DIR") and self.cache_dir in ("masks", str(resolve_cache_root())):
             self.cache_dir = os.environ["MATRIX_MAT_CACHE_DIR"]
@@ -394,9 +406,7 @@ class PipelineConfig:
         if yaml_path.exists():
             with open(yaml_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            content = os.path.expandvars(content)
-            data_root = os.environ.get("MATRIX_MAT_DATA_ROOT", "data")
-            content = content.replace("${DATA_ROOT}", data_root)
+            content = expand_root_placeholders(content)
             data = yaml.safe_load(content) or {}
         else:
             logger.warning(f"Config file {yaml_path} not found. Using default parameters.")

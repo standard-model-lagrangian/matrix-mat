@@ -53,6 +53,16 @@ def get_ordered_materials(df: pd.DataFrame, col: str = "material") -> List[str]:
     return known + other
 
 
+def density_figure_subtitle(summary_df: Optional[pd.DataFrame], control_material: str = "Mat") -> str:
+    """Subtitle that states the test behind any stars, or that no test was computed."""
+    if summary_df is not None and "p_adj" in summary_df.columns and summary_df["p_adj"].notna().any():
+        return (
+            f"(Diamond=Mean, Line=Median; stars: gel-level permutation test vs {control_material}, "
+            "Holm-adjusted p<0.05)"
+        )
+    return "(Diamond=Mean, Line=Median; no hypothesis test computed)"
+
+
 def plot_nuclei_density_by_material(
     per_image_df: pd.DataFrame,
     output_dir: Path,
@@ -69,7 +79,9 @@ def plot_nuclei_density_by_material(
 
     # Filter to present materials (canonical + any novel ones)
     present_materials = get_ordered_materials(per_image_df, "material")
-    dens_col = "nuclei_per_mm2" if "nuclei_per_mm2" in per_image_df.columns else "nuclei_density_per_mm3"
+    if "nuclei_per_mm2" not in per_image_df.columns:
+        raise ValueError("per_image.csv lacks nuclei_per_mm2 (pre-0.2 run); re-run before plotting")
+    dens_col = "nuclei_per_mm2"
 
     # Get control data
     ctrl_data = per_image_df[per_image_df["material"] == control_material][dens_col].dropna().values
@@ -121,8 +133,8 @@ def plot_nuclei_density_by_material(
             elif summary_df is not None and "material" in summary_df.columns:
                 s_row = summary_df[summary_df["material"] == m]
                 if not s_row.empty:
-                    sig_note = str(s_row.iloc[0].get("significance", s_row.iloc[0].get("p_adj", "")))
-                    if sig_note and sig_note != "ns":
+                    sig_note = str(s_row.iloc[0].get("significance", ""))
+                    if sig_note.startswith("*"):
                         sig_note = f"{sig_note}\n[n={n_gels_m} gels]"
                     else:
                         sig_note = ""
@@ -140,7 +152,10 @@ def plot_nuclei_density_by_material(
     ax1.set_xticks(positions)
     ax1.set_xticklabels(present_materials, fontweight="bold", fontsize=11)
     ax1.set_ylabel(DENSITY_Y_LABEL, fontsize=11, fontweight="bold")
-    ax1.set_title("A. Planar Nuclei Density by Hydrogel Material\n(Diamond=Mean, Line=Median, *p<0.05 vs Mat)", fontsize=12, fontweight="bold", pad=10)
+    ax1.set_title(
+        "A. Planar Nuclei Density by Hydrogel Material\n" + density_figure_subtitle(summary_df, control_material),
+        fontsize=12, fontweight="bold", pad=10,
+    )
     ax1.grid(True, linestyle=":", alpha=0.4, axis="y")
 
     # Panel B: Log-scale distribution
@@ -207,7 +222,9 @@ def plot_clean_vs_all_density(
     all_means, all_sds = [], []
     clean_means, clean_sds = [], []
 
-    dens_col = "nuclei_per_mm2" if "nuclei_per_mm2" in merged.columns else "nuclei_density_per_mm3"
+    if "nuclei_per_mm2" not in merged.columns:
+        raise ValueError("per_image.csv lacks nuclei_per_mm2 (pre-0.2 run); re-run before plotting")
+    dens_col = "nuclei_per_mm2"
     for m in present_materials:
         sub_all = merged[merged["material"] == m][dens_col].dropna()
         sub_clean = merged[(merged["material"] == m) & (merged["flag_any"] == False)][dens_col].dropna()
@@ -230,7 +247,7 @@ def plot_clean_vs_all_density(
     ax.set_xticks(positions)
     ax.set_xticklabels(present_materials, fontweight="bold", fontsize=11)
     ax.set_ylabel(f"Mean {DENSITY_Y_LABEL} ± SD", fontsize=11, fontweight="bold")
-    ax.set_title("Biological Stability: All Cohort vs. Clean Fields Only\n(Confirming QC Gating Does Not Alter Material Biological Trends)", fontsize=12, fontweight="bold", pad=12)
+    ax.set_title("Biological Stability: All Cohort vs. Clean Fields Only\n(Sensitivity of Material Means to QC Exclusion (descriptive))", fontsize=12, fontweight="bold", pad=12)
     ax.legend(frameon=True, fontsize=10)
     ax.grid(True, linestyle=":", alpha=0.4, axis="y")
 
@@ -323,7 +340,9 @@ def generate_all_if_biological_figures(
     figs = {}
     if feat_img_path.exists():
         per_img = pd.read_csv(feat_img_path)
-        figs["density_by_material"] = plot_nuclei_density_by_material(per_img, out_dir)
+        summary_path = run_dir / "summary" / "summary_by_material.csv"
+        summary_df = pd.read_csv(summary_path) if summary_path.exists() else None
+        figs["density_by_material"] = plot_nuclei_density_by_material(per_img, out_dir, summary_df=summary_df)
 
         if qc_flags_path.exists():
             qc_df = pd.read_csv(qc_flags_path)

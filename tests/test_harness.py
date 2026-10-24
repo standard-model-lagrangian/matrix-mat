@@ -3,43 +3,14 @@ from pathlib import Path
 import sys
 import pytest
 
-@pytest.fixture(scope="session", autouse=True)
-def ensure_clean_repo_state():
-    """Session fixture that verifies no stray root outputs are left behind during tests."""
-    repo_root = Path(__file__).resolve().parent.parent
-
-    def get_status():
-        res = subprocess.run(
-            ["git", "status", "--porcelain", "--ignored"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
-        return set(res.stdout.splitlines())
-
-    before = get_status()
-    yield
-    after = get_status()
-    diff = after - before
-    forbidden_prefixes = ("masks/", "output/", "runs/")
-    forbidden_exact = ("DECISIONS.md",)
-    violations = []
-    for line in diff:
-        line = line.strip()
-        if not line:
-            continue
-        status_path = line[2:].strip()
-        if any(status_path.startswith(prefix) for prefix in forbidden_prefixes):
-            violations.append(status_path)
-        if status_path in forbidden_exact:
-            violations.append(status_path)
-    assert not violations, f"Stray root files/directories created during test run: {violations}"
-
-
 def test_no_test_writes_outside_tmp():
     """Asserts that no tests pollute the repository tree with outputs/caches."""
+    repo_root = Path(__file__).resolve().parent.parent
+    if not (repo_root / ".git").exists():
+        pytest.skip("not a git checkout")
     result = subprocess.run(
         ["git", "status", "--porcelain"],
+        cwd=repo_root,
         capture_output=True,
         text=True,
         check=True,

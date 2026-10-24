@@ -1,10 +1,10 @@
 # Immunofluorescence Pipeline Pre/Post-Processing Findings (Narrative)
 
-*Archived manual scientific observations and interpretations for the SKOV3 IF dataset.*
+*Hand-written observations and interpretations for the SKOV3 IF dataset. These are author commentary, not generated results; each should cite the metric it rests on.*
 
 ## 1. Clumping and Merged Masks
 - **Observation:** In dense spheroid centers, single-plane 2D projection causes nuclear overlap.
-- **Intervention:** Seeded watershed splitting using local distance peaks and intensity h-maxima partitions large clump candidates (>2× image median volume), reducing parameter sensitivity between sensitive and conservative Cellpose-SAM configurations.
+- **Intervention:** Seeded watershed splitting using local distance peaks and intensity h-maxima partitions clump candidates larger than 2× the configured reference nuclear volume (841.04 µm³, provisional). Whether this reduces sensitivity to Cellpose parameters is what `robustness_vs_original.csv` measures; it has not been re-measured since the 0.2 changes.
 
 ## 2. Autofluorescence and Size Thresholding
 - **Observation:** Soft hydrogels (e.g. S50, S43D20) exhibit diffuse matrix haze and small autofluorescent puncta.
@@ -15,5 +15,5 @@
 - **Intervention:** Border margin clearance excludes boundary-touching objects within 5.85 µm from density calculations.
 
 ## 4. Optical Quality & Focal Variations
-- **Observation:** Field `SKOV3 Spheroid D7 Mor_Mat-Gel1-3` exhibits severe optical defocus at the imaged plane, triggering Laplacian blur flags.
+- **Observation (author, not yet confirmed by visual review):** Field `SKOV3 Spheroid D7 Mor_Mat-Gel1-3` has the lowest raw nuclear-channel Laplacian variance of the 27 fields (133 vs 183–481 for the rest), consistent with defocus. It is the only field below the provisional absolute blur threshold of 150.
 - **Conclusion:** 2D computational restoration cannot recover missing optical high-frequency details; future acquisition should enforce automated confocal z-stack autofocus.

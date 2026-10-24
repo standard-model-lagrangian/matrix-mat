@@ -36,8 +36,8 @@ class ReviewManager:
     """Manages manual ground-truth mask ingestion, agreement validation, and mask overriding."""
 
     def __init__(self, review_dir: Union[str, Path] = "review"):
+        # Read-only input folder: never created here, so runs leave no stray directories behind.
         self.review_dir = Path(review_dir)
-        self.review_dir.mkdir(parents=True, exist_ok=True)
 
     def find_manual_mask(
         self,

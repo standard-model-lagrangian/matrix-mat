@@ -1,3 +1,3 @@
-material,n_images_total,n_images_clean,n_gels,flagged_image_rate,mean_nuclei_per_mm2_all,sd_nuclei_per_mm2_all,mean_nuclei_per_mm2_clean,sd_nuclei_per_mm2_clean,mean_nuclei_density_all,sd_nuclei_density_all,mean_nuclei_density_clean,sd_nuclei_density_clean,median_nuclear_volume_um3,mean_spheroid_volume_um3,statistical_note
-Mat,1,0,1,1.0,3058.85,0.0,0.0,0.0,3058.85,0.0,0.0,0.0,110.28,23105.2,insufficient replicates for statistical test (n_gels=1)
-S34D30,1,0,1,1.0,2791.33,0.0,0.0,0.0,2791.33,0.0,0.0,0.0,110.28,14427.5,insufficient replicates for statistical test (n_gels=1)
+material,n_images_total,n_images_clean,n_gels,flagged_image_rate,mean_nuclei_per_mm2_all,sd_nuclei_per_mm2_all,mean_nuclei_per_mm2_clean,sd_nuclei_per_mm2_clean,gel_mean_nuclei_per_mm2,gel_sd_nuclei_per_mm2,median_nuclear_volume_um3,mean_spheroid_area_um2,statistical_note,p_raw,p_adj,p_adj_method,min_achievable_p,significance
+Mat,1,0,1,1.0,3058.85,,,,3058.85,,110.28,980.8,control,,,holm,,control
+S34D30,1,0,1,1.0,2791.33,,,,2791.33,,110.28,716.5,insufficient replicates for statistical test (n_gels=1),,,holm,,untested

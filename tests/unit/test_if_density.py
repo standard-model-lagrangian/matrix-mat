@@ -84,3 +84,42 @@ def test_density_units_label_matches_values():
     from spheroid_if_sweep.biological_plots import DENSITY_Y_LABEL
     assert "mm^2" in DENSITY_Y_LABEL or "mm²" in DENSITY_Y_LABEL
     assert "mm^3" not in DENSITY_Y_LABEL and "mm³" not in DENSITY_Y_LABEL
+
+
+def _synthetic_spheroid_field(radius_px: int, spacing_px: int = 12, size: int = 460):
+    """Actin-filled disk with hexagonally packed 3-px nuclei inside it, rendered as images and labels."""
+    from skimage import draw
+
+    actin = np.full((size, size), 10, dtype=np.uint8)
+    rr, cc = draw.disk((size // 2, size // 2), radius_px, shape=actin.shape)
+    actin[rr, cc] = 180
+    nuclear = np.zeros_like(actin)
+    labels = np.zeros(actin.shape, dtype=np.int32)
+    lab = 0
+    y_step = spacing_px * np.sqrt(3) / 2
+    for row in range(-int(radius_px / y_step) - 1, int(radius_px / y_step) + 2):
+        off = spacing_px / 2 if row % 2 else 0.0
+        for col in range(-radius_px // spacing_px - 2, radius_px // spacing_px + 3):
+            y, x = row * y_step, col * spacing_px + off
+            if y * y + x * x <= (radius_px - 4) ** 2:
+                lab += 1
+                r2, c2 = draw.disk((size // 2 + y, size // 2 + x), 3, shape=actin.shape)
+                labels[r2, c2] = lab
+                nuclear[r2, c2] = 200
+    return nuclear, actin, labels
+
+
+def test_areal_density_invariant_to_spheroid_size_through_feature_pipeline():
+    """Same packing in spheroids of different size must give the same nuclei/mm2 via the production code path."""
+    densities = []
+    for radius in (60, 120, 200):
+        nuclear, actin, labels = _synthetic_spheroid_field(radius)
+        _, per_img = extract_objects_and_image_features(
+            image_id=f"r{radius}", material="Mat", replicate="Gel1",
+            nuclear_img=nuclear, actin_img=actin, dedup_masks=labels,
+            pixel_size_um=1.0, qc_flags_list="", feature_config={},
+        )
+        densities.append(per_img["nuclei_per_mm2"])
+        assert "nuclei_density_per_mm3" not in per_img
+    densities = np.array(densities)
+    assert np.all(np.abs(densities / densities.mean() - 1.0) < 0.05), densities

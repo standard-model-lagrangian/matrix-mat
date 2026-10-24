@@ -1,3 +1,4 @@
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
@@ -5,6 +6,8 @@ import spheroid_pipeline_v2
 from spheroid_pipeline_v2.config import PipelineConfig, SegmentationConfig
 from spheroid_pipeline_v2.segment import SegmentationHierarchy
 from spheroid_pipeline_v2.measure import SpheroidObjectRecord, OBJECTS_CSV_COLUMNS
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class StubSegmenter:
@@ -138,6 +141,7 @@ def test_condition_summary_reports_backend_mix():
 @pytest.mark.dl
 def test_cellpose_model_identity(monkeypatch):
     """When config asks for cpdino, loaded model's pretrained_model must contain cpdino, else raise."""
+    pytest.importorskip("cellpose")
     from spheroid_pipeline_v2.segment import CellposeFoundationSegmenter
     from unittest.mock import MagicMock
     import cellpose.models
@@ -163,8 +167,8 @@ def test_ci_smoke_reports_backend(tmp_path):
     from matrix_mat.brightfield.config import PipelineConfig
     from matrix_mat.brightfield.run_pipeline import run_spheroid_pipeline
 
-    d0_dir = Path("tests/fixtures/synthetic_dataset/Day0")
-    d7_dir = Path("tests/fixtures/synthetic_dataset/Day7")
+    d0_dir = (REPO_ROOT / "tests/fixtures/synthetic_dataset/Day0")
+    d7_dir = (REPO_ROOT / "tests/fixtures/synthetic_dataset/Day7")
 
     config = PipelineConfig(
         t0_dir=str(d0_dir),
@@ -187,3 +191,60 @@ def test_ci_smoke_reports_backend(tmp_path):
 
 
 
+
+
+def test_missing_weights_raise_instead_of_empty_masks(tmp_path):
+    """A missing cpsam weights file must abort segmentation, not silently yield 0 objects per image."""
+    from spheroid_pipeline_v2.segment import CellposeSAMSegmenter
+
+    cfg = SegmentationConfig(primary_backend="cpsam", cpsam_model_path=str(tmp_path / "missing" / "cpsam_v2"),
+                             cache_dir=str(tmp_path / "cache"))
+    hierarchy = SegmentationHierarchy(cfg)
+    assert isinstance(hierarchy.cpsam_segmenter, CellposeSAMSegmenter)
+    with pytest.raises(FileNotFoundError, match="fetch_models"):
+        hierarchy.segment(np.zeros((64, 64), dtype=np.uint8), image_id="no_weights", force_recompute=True)
+
+
+@pytest.mark.parametrize("bad_backend", ["cyto3", "sam", "cellpose"])
+def test_unknown_backend_rejected(bad_backend):
+    """Unknown backend names must be rejected instead of silently running cpsam."""
+    with pytest.raises(ValueError, match="cpdino"):
+        SegmentationConfig(primary_backend=bad_backend)
+
+
+def test_failed_inference_is_flagged_and_not_cached(tmp_path):
+    """A per-image inference error flags the image SEG_FAIL and is never written to the mask cache."""
+    config = SegmentationConfig(primary_backend="cpsam", cache_dir=str(tmp_path))
+    hierarchy = SegmentationHierarchy(config)
+
+    class FailingStub(StubSegmenter):
+        def segment(self, img, pixel_size_um):
+            self.calls += 1
+            return np.zeros(img.shape[:2], dtype=np.int32), {
+                "backend": "cpsam", "model_id": "cpsam_v2", "status": "failed", "error": "boom",
+            }
+
+    stub = FailingStub()
+    hierarchy.cpsam_segmenter = stub
+    img = np.zeros((64, 64), dtype=np.uint8)
+    _, meta = hierarchy.segment(img, image_id="flaky", force_recompute=False)
+    assert meta["qc_flag"] == "SEG_FAIL"
+    assert "boom" in meta["qc_reasons"]
+    _, meta2 = hierarchy.segment(img, image_id="flaky", force_recompute=False)
+    assert stub.calls == 2, "failed segmentation must not be served from cache"
+    assert not meta2.get("cached", False)
+
+
+def test_seg_fail_flag_survives_cache_hit(tmp_path):
+    """Re-running on a cached implausible mask must still flag the image SEG_FAIL."""
+    config = SegmentationConfig(primary_backend="cpsam", cache_dir=str(tmp_path))
+    hierarchy = SegmentationHierarchy(config)
+    hierarchy.cpsam_segmenter = StubSegmenter(mask_fn=lambda img: np.zeros(img.shape[:2], dtype=np.int32),
+                                              backend_name="cpsam")
+    img = np.zeros((64, 64), dtype=np.uint8)
+    _, meta1 = hierarchy.segment(img, image_id="empty_field", force_recompute=False)
+    _, meta2 = hierarchy.segment(img, image_id="empty_field", force_recompute=False)
+    assert meta1["qc_flag"] == "SEG_FAIL"
+    assert meta2.get("cached") is True
+    assert meta2.get("qc_flag") == "SEG_FAIL"
+    assert meta2.get("plausibility_status") == "FAIL"

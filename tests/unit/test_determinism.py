@@ -30,17 +30,26 @@ def test_weights_sha_mismatch_raises(tmp_path):
     assert "mismatch" in str(exc_info.value).lower()
 
 
+def _locate_cpsam_weights():
+    """Weights from MATRIX_MAT_MODELS_ROOT, else <repo>/models, independent of the cwd."""
+    from matrix_mat.core.paths import resolve_models_root
+    repo_root = Path(__file__).resolve().parents[2]
+    for root in (resolve_models_root() if os.environ.get("MATRIX_MAT_MODELS_ROOT") else None, repo_root / "models"):
+        if root is not None and (Path(root) / "cpsam_v2").exists():
+            return Path(root) / "cpsam_v2"
+    return None
+
+
 @pytest.mark.dl
 def test_set_determinism_sets_torch_and_numpy():
     """set_determinism configures seeds and returns independent numpy Generator."""
+    torch = pytest.importorskip("torch")
     rng1 = set_determinism(42, include_torch=True)
     val1 = rng1.random()
     rng2 = set_determinism(42, include_torch=True)
     val2 = rng2.random()
     assert val1 == val2
-
-    import torch
-    assert torch.initial_seed() is not None
+    assert torch.initial_seed() == 42
 
 
 def test_no_global_numpy_seed_calls():
@@ -132,10 +141,12 @@ def test_pipeline_bitwise_reproducible_cpu(tmp_path):
 @pytest.mark.dl
 def test_cpsam_reproducible_within_tolerance():
     """CPSAM GPU/MPS inference is reproducible: object count identical and area within 0.5%."""
+    pytest.importorskip("cellpose")
+    from matrix_mat.core.paths import resolve_models_root
     from matrix_mat.if_density.engine import CPSAMEngine
-    model_path = Path("models/cpsam_v2")
-    if not model_path.exists():
-        pytest.skip("Local CPSAM model weights not available")
+    model_path = _locate_cpsam_weights()
+    if model_path is None:
+        pytest.skip("cpsam_v2 weights not found (set MATRIX_MAT_MODELS_ROOT or run tools/fetch_models.py)")
 
     # Generate synthetic image
     img = np.zeros((256, 256), dtype=np.uint8)

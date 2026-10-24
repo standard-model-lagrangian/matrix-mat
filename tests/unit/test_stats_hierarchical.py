@@ -115,9 +115,21 @@ def test_cluster_permutation_exact_when_few_gels():
         df, value_col="val", group_col="condition", cluster_col="gel",
         ref_group="ctrl", n_perm=1000, seed=42
     )
-    # The minimum achievable p-value for 3 vs 3 gels
-    assert min_p >= 0.05
-    assert p_val >= min_p
+    # Independent brute-force oracle over all C(6,3)=20 relabellings of the six gel medians.
+    vals = np.array([0.0, 1.0, 2.0, 10.0, 11.0, 12.0])
+    obs = abs(np.median(vals[3:]) - np.median(vals[:3]))
+    diffs = []
+    for idx in itertools.combinations(range(6), 3):
+        rest = [i for i in range(6) if i not in idx]
+        diffs.append(abs(np.median(vals[rest]) - np.median(vals[list(idx)])))
+    diffs = np.array(diffs)
+    assert len(diffs) == math.comb(6, 3) == 20
+    expected_p = float(np.mean(diffs >= obs))
+    expected_min_p = float(np.mean(diffs >= diffs.max()))
+    # Median ties mean 4 of 20 splits reach |diff| = 10 here (e.g. {0,1,10} vs {2,11,12}).
+    assert expected_p == pytest.approx(4 / 20)
+    assert p_val == pytest.approx(expected_p)
+    assert min_p == pytest.approx(expected_min_p)
 
 
 def test_holm_adjustment_matches_statsmodels():
@@ -175,8 +187,10 @@ def test_control_p_value_is_na_not_one():
     auditor = SpheroidPopulationAuditor(config=StatsConfig(control_condition="Mat"))
     summary_df = auditor.compute_condition_summaries(df_pairs)
     ctrl_row = summary_df[summary_df["condition"] == "Mat"].iloc[0]
-    # Control p_raw should be NaN / None, not 1.0
-    assert pd.isna(ctrl_row.get("p_raw")) or pd.isna(ctrl_row.get("p_value"))
+    # Control p_raw must be NaN, not 1.0
+    assert "p_raw" in summary_df.columns
+    assert pd.isna(ctrl_row["p_raw"])
+    assert pd.isna(ctrl_row["p_adj"])
 
 
 def test_no_silent_population_fallback():
@@ -217,3 +231,67 @@ def test_no_silent_population_fallback():
 
     assert test_row["analysis_population"] == "PASS"
     assert pd.isna(test_row["fold_change_median"])
+
+
+def _pairs_frame(rows):
+    base = {
+        "denominator_gate_pass": True,
+        "combined_qc_flag": "PASS",
+        "delta_volume_um3": 0.0,
+        "t0_volume_sphere_um3": 1000.0,
+    }
+    out = []
+    for i, (cond, gel, fc, flag) in enumerate(rows):
+        r = dict(base)
+        r.update({
+            "pair_id": f"{cond}_{gel}_{i}",
+            "condition": cond,
+            "replicate": gel,
+            "fov": f"{i:04d}",
+            "fold_change_volume": fc,
+            "log2_fold_change": float(np.log2(fc)),
+            "t7_volume_sphere_um3": 1000.0 * fc,
+            "combined_qc_flag": flag,
+        })
+        out.append(r)
+    return pd.DataFrame(out)
+
+
+def test_ci_columns_are_on_fold_change_scale_and_bracket_median():
+    """bootstrap_ci_95_* must be on the same (ratio) scale as fold_change_median; log2 CI gets its own columns."""
+    from spheroid_pipeline_v2.stats import SpheroidPopulationAuditor
+    from spheroid_pipeline_v2.config import StatsConfig
+
+    rows = []
+    for cond, centre in [("Mat", 3.0), ("S50", 1.5)]:
+        for g in range(3):
+            for k in range(5):
+                rows.append((cond, f"gel{g + 1}", centre * (1.0 + 0.05 * (k - 2) + 0.03 * g), "PASS"))
+    df = _pairs_frame(rows)
+    summary = SpheroidPopulationAuditor(config=StatsConfig(control_condition="Mat")).compute_condition_summaries(df)
+
+    for _, row in summary.iterrows():
+        assert row["bootstrap_ci_95_low"] > 0
+        assert row["bootstrap_ci_95_low"] <= row["fold_change_median"] <= row["bootstrap_ci_95_high"]
+        assert row["log2fc_ci_95_low"] <= row["log2fc_median"] <= row["log2fc_ci_95_high"]
+        assert row["bootstrap_ci_95_low"] == pytest.approx(2.0 ** row["log2fc_ci_95_low"])
+        assert row["bootstrap_ci_95_high"] == pytest.approx(2.0 ** row["log2fc_ci_95_high"])
+
+
+def test_n_gels_counts_only_gels_in_analysis_population():
+    """n_gels must describe the analysed (PASS) population, not every gel that contributed any pair."""
+    from spheroid_pipeline_v2.stats import SpheroidPopulationAuditor
+    from spheroid_pipeline_v2.config import StatsConfig
+
+    df = _pairs_frame([
+        ("Mat", "gel1", 2.0, "PASS"),
+        ("Mat", "gel2", 2.1, "PASS"),
+        ("Mat", "gel3", 2.2, "FAIL"),
+        ("Mat", "gel4", 2.3, "REVIEW"),
+    ])
+    summary = SpheroidPopulationAuditor(
+        config=StatsConfig(control_condition="Mat", include_review_in_stats=False)
+    ).compute_condition_summaries(df)
+    row = summary.iloc[0]
+    assert row["n_spheroids"] == 2
+    assert row["n_gels"] == 2

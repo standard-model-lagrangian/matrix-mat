@@ -21,9 +21,9 @@ class StubIFEngine:
 
 
 def test_synthetic_if_matches_golden(tmp_path, pytestconfig):
-    data_dir = Path("tests/fixtures/synthetic_if_dataset").resolve()
-    golden_dir = Path("tests/regression/golden_if").resolve()
-    golden_dir.mkdir(parents=True, exist_ok=True)
+    repo_root = Path(__file__).resolve().parents[2]
+    data_dir = repo_root / "tests/fixtures/synthetic_if_dataset"
+    golden_dir = repo_root / "tests/regression/golden_if"
 
     config_content = f"""
 data_dir: "{data_dir}"
@@ -84,7 +84,7 @@ qc:
   border_margin_px: 2
   edge_heavy_fraction: 0.25
   saturation_fraction_max: 0.005
-  blur_percentile_cutoff: 10.0
+  blur_abs_threshold: 50.0
   duplicate_iou_threshold: 0.50
   outlier_iqr_factor: 1.5
 
@@ -113,8 +113,9 @@ features:
         golden_path = golden_dir / fname
         assert actual_path.exists(), f"Output file missing: {actual_path}"
 
-        if update_golden or not golden_path.exists():
+        if update_golden:
             shutil.copyfile(actual_path, golden_path)
+        assert golden_path.exists(), f"Golden file missing: {golden_path} (regenerate with --update-golden)"
 
         df_actual = pd.read_csv(actual_path)
         df_golden = pd.read_csv(golden_path)

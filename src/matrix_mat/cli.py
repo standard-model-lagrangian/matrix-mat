@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     bf_preflight.add_argument("-c", "--config", type=str, default="configs/spheroid_brightfield.yaml", help="Path to YAML config.")
     bf_preflight.add_argument("--t0-dir", type=str, help="Day 0 image directory override.")
     bf_preflight.add_argument("--t7-dir", type=str, help="Day 7 image directory override.")
-    bf_preflight.add_argument("-o", "--out", "--output-dir", dest="output_dir", type=str, default="output", help="Output directory.")
+    bf_preflight.add_argument("-o", "--out", "--output-dir", dest="output_dir", type=str, default=None, help="Output directory (default: output_dir from the YAML config).")
     bf_preflight.add_argument("--pixel-size", dest="pixel_size", type=float, help="Optical calibration override (um/px).")
 
     # bf run
@@ -51,11 +51,11 @@ def build_parser() -> argparse.ArgumentParser:
     bf_run.add_argument("--t0-dir", type=str, help="Day 0 image directory override.")
     bf_run.add_argument("--t7-dir", type=str, help="Day 7 image directory override.")
     bf_run.add_argument("--input-dir", type=str, help="Unified input root directory containing Day0 and Day7 subdirectories.")
-    bf_run.add_argument("-o", "--out", "--output-dir", dest="output_dir", type=str, default="output", help="Output directory.")
+    bf_run.add_argument("-o", "--out", "--output-dir", dest="output_dir", type=str, default=None, help="Output directory (default: output_dir from the YAML config).")
     bf_run.add_argument("--condition", type=str, help="Filter dataset to specific condition (e.g. Mat, S34D30).")
-    bf_run.add_argument("--review-dir", type=str, default="review", help="Directory monitoring manual review masks.")
+    bf_run.add_argument("--review-dir", type=str, default=None, help="Directory of manual review masks (default: review_dir from the YAML config).")
     bf_run.add_argument("--pixel-size", dest="pixel_size", type=float, help="Optical calibration override in um/pixel.")
-    bf_run.add_argument("--backend", type=str, choices=["cpsam", "cyto3", "classical", "sam"], help="Primary segmentation backend.")
+    bf_run.add_argument("--backend", type=str, choices=["cpsam", "cpdino", "classical"], help="Primary segmentation backend.")
     bf_run.add_argument("--device", type=str, choices=["cpu", "mps", "cuda"], help="Hardware acceleration device.")
     bf_run.add_argument("--no-cache", action="store_true", help="Force recomputation without reading cached masks.")
     bf_run.add_argument("--overwrite", action="store_true", help="Overwrite existing output files and bypass mask cache.")
@@ -217,11 +217,15 @@ def handle_bf_run(args: argparse.Namespace) -> int:
                 setattr(config, k, v)
 
     sample_n = getattr(args, "sample", None)
-    res = run_spheroid_pipeline(
-        config=config,
-        sample_n=sample_n,
-    )
-    is_success = res.get("success", True) if isinstance(res, dict) else bool(res)
+    try:
+        res = run_spheroid_pipeline(
+            config=config,
+            sample_n=sample_n,
+        )
+    except (FileNotFoundError, ValueError, RuntimeError, ImportError) as e:
+        logger.error(f"Brightfield run aborted: {e}")
+        return 1
+    is_success = isinstance(res, dict) and res.get("status") == "SUCCESS"
     return 0 if is_success else 1
 
 

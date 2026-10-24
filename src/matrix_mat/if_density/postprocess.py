@@ -25,7 +25,8 @@ from matrix_mat.if_density.qc import deduplicate_masks
 
 logger = logging.getLogger("matrix_mat.if_density.postprocess")
 
-# Data-driven reference nuclear volume derived from 001_A_baseline cohort median of material medians
+# Legacy value: median nuclear volume of the 001_A_baseline run on this dataset. It is data-derived,
+# so it is no longer used as a silent default; configs must state reference_vol_um3 explicitly.
 REFERENCE_NUCLEAR_VOLUME_UM3 = 841.04
 DEFAULT_MIN_VOL_UM3 = 210.0   # ~0.25x reference volume
 DEFAULT_MAX_VOL_UM3 = 3364.0  # ~4.0x reference volume
@@ -57,6 +58,7 @@ class PostprocessStats:
     n_final_included: int
     removed_sizes_um3: List[float] = field(default_factory=list)
     split_events: List[Dict[str, Any]] = field(default_factory=list)
+    enabled: bool = True
 
 
 def compute_object_volume(area_px: int | float, pixel_size_um: float) -> Tuple[float, float]:
@@ -143,10 +145,12 @@ def split_merged_nuclei(
         return masks.copy(), 0, 0, 0, 0, []
 
     vols = {p.label: compute_object_volume(p.area, pixel_size_um)[1] for p in props}
-    if reference_vol_um3 is not None:
-        ref_vol = float(reference_vol_um3)
-    else:
-        ref_vol = float(np.median(list(vols.values()))) if vols else REFERENCE_NUCLEAR_VOLUME_UM3
+    if reference_vol_um3 is None:
+        raise ValueError(
+            "split_merged_nuclei requires reference_vol_um3; a per-image median would make the split "
+            "decision depend on the image being analysed"
+        )
+    ref_vol = float(reference_vol_um3)
     candidate_thresh = split_factor * ref_vol
 
     candidates = [p for p in props if vols[p.label] > candidate_thresh]
@@ -300,7 +304,8 @@ def postprocess_field_masks(
     4. Border exclusion
     Returns (final_masks, border_labels, stats).
     """
-    enabled = bool(postprocess_config.get("enabled", True))
+    # Default matches the config schema: post-processing runs only when explicitly enabled.
+    enabled = bool(postprocess_config.get("enabled", False))
     n_raw = int(raw_masks.max())
 
     if not enabled:
@@ -318,6 +323,7 @@ def postprocess_field_masks(
             n_border_excluded=0,
             n_final_total=n_raw,
             n_final_included=n_raw,
+            enabled=False,
         )
         return raw_masks.copy(), set(), stats
 
@@ -329,25 +335,23 @@ def postprocess_field_masks(
     # 2. Derive reference volume and bounds from config (literature / annotation reference) or dynamic cohort/image median
     size_cfg = postprocess_config.get("size_gate", {})
     size_enabled = bool(size_cfg.get("enabled", True))
+    split_cfg = postprocess_config.get("splitting", {})
+    split_enabled = bool(split_cfg.get("enabled", True))
+
+    # 2. Reference nuclear volume comes from configuration only. Deriving it from the masks being
+    # filtered (per-image or per-cohort median) would make every gate relative to the data it judges.
     ref_vol_cfg = size_cfg.get("reference_vol_um3") or postprocess_config.get("reference_vol_um3")
-    if ref_vol_cfg is not None:
-        ref_vol = float(ref_vol_cfg)
-    else:
-        # Dynamically compute median volume from segmented nuclei to eliminate circular hardcoded reference
-        props = measure.regionprops(masks_dedup)
-        px_vol_factor = (4.0 / 3.0) * np.pi * (pixel_size_um ** 3)
-        vols = [px_vol_factor * ((np.sqrt(p.area / np.pi)) ** 3) for p in props if p.area > 0]
-        if vols:
-            ref_vol = float(np.median(vols))
-        else:
-            ref_vol = float(REFERENCE_NUCLEAR_VOLUME_UM3)
+    if ref_vol_cfg is None and (size_enabled or split_enabled):
+        raise ValueError(
+            f"{image_id}: post-processing size gate/splitting is enabled but size_gate.reference_vol_um3 "
+            "is not configured (set it, with reference_citation, in the YAML)"
+        )
+    ref_vol = float(ref_vol_cfg) if ref_vol_cfg is not None else float("nan")
 
     min_vol = float(size_cfg.get("min_vol_um3", 0.25 * ref_vol))
     max_vol = float(size_cfg.get("max_vol_um3", 4.0 * ref_vol))
 
     # 3. Split merged nuclei (MUST run BEFORE size gate so multi-nuclear clumps are not discarded as oversized)
-    split_cfg = postprocess_config.get("splitting", {})
-    split_enabled = bool(split_cfg.get("enabled", True))
     if split_enabled:
         split_factor = float(split_cfg.get("split_factor", 2.0))
         h_max = float(split_cfg.get("h_maxima", 10.0))

@@ -30,9 +30,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
-      - name: Run fast test suite
+      - name: Lint (syntax errors and undefined names)
         run: |
-          pytest -m "not slow and not dl and not realdata"
+          ruff check --select E9,F63,F7,F82 src tests tools spheroid_pipeline_v2 spheroid_if_sweep
+
+      - name: Type-check core
+        run: |
+          mypy src/matrix_mat/core --ignore-missing-imports
+
+      - name: Run fast test suite with coverage gates
+        run: |
+          pytest -m "not slow and not dl and not realdata" --cov=src/matrix_mat --cov-report=term --cov-fail-under=60
+          coverage report --include="src/matrix_mat/core/*" --fail-under=80
 
   locked:
     name: Locked Dependencies Integration Tests (Python 3.12)
@@ -51,7 +60,7 @@ jobs:
       - name: Install locked dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-lock.txt
+          pip install --require-hashes -r requirements-lock.txt
           pip install -e . --no-deps
           pip install pytest pytest-cov
 

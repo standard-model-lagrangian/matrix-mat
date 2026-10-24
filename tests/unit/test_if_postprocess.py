@@ -68,40 +68,75 @@ def test_split_runs_before_size_gate():
     assert stats.n_size_gate_removed_large == 0
 
 
+def _disk_masks(radii, pixel_size_um=1.0, shape=(200, 200)):
+    masks = np.zeros(shape, dtype=np.int32)
+    img = np.zeros(shape, dtype=np.uint8)
+    for i, r in enumerate(radii, start=1):
+        cy = 20 + ((i - 1) // 5) * 40
+        cx = 20 + ((i - 1) % 5) * 40
+        rr, cc = draw.disk((cy, cx), radius=r, shape=shape)
+        masks[rr, cc] = i
+        img[rr, cc] = 150
+    return masks, img
+
+
+def test_size_gate_requires_configured_reference_volume():
+    """With size gating or splitting enabled, a missing reference volume is a configuration error."""
+    masks, img = _disk_masks([6, 6, 6])
+    for section in ("size_gate", "splitting"):
+        cfg = {
+            "enabled": True,
+            "size_gate": {"enabled": section == "size_gate", "min_vol_um3": 50.0, "max_vol_um3": 5000.0},
+            "splitting": {"enabled": section == "splitting"},
+            "border_exclusion": {"enabled": False},
+        }
+        with pytest.raises(ValueError, match="reference_vol_um3"):
+            postprocess_field_masks("no_ref", masks, img, 1.0, cfg)
+
+
 def test_size_gate_reference_from_config_not_cohort():
     """
-    Reference volume comes from config (literature/annotation value with citation field).
-    Running on cohorts with different medians uses the identical configured gate.
+    Two cohorts with very different median nuclear sizes are gated and split against the same
+    configured reference, so the decision for an identical object does not depend on its neighbours.
     """
-    cfg_a = {
+    cfg = {
         "enabled": True,
         "size_gate": {
             "enabled": True,
             "reference_vol_um3": 1200.0,
-            "reference_citation": "Literature benchmark for high-grade serous ovarian cancer",
+            "reference_citation": "test reference",
         },
-        "splitting": {"enabled": False},
+        "splitting": {"enabled": True, "split_factor": 2.0},
         "border_exclusion": {"enabled": False},
     }
+    probe_radius = 8  # ~2145 um3 at 1 um/px: below 2 x 1200, so never a split candidate
+    small_cohort, img_s = _disk_masks([5, 5, 5, 5, probe_radius])
+    large_cohort, img_l = _disk_masks([12, 12, 12, 12, probe_radius])
 
-    # Image with single object of volume 1000 um3
-    # Radius ~ 6.2 px -> Area ~ 120 px -> Vol ~ 1000 um3
-    h, w = 100, 100
-    img = np.zeros((h, w), dtype=np.uint8)
-    masks = np.zeros((h, w), dtype=np.int32)
-    rr, cc = draw.disk((50, 50), radius=6, shape=(h, w))
-    masks[rr, cc] = 1
+    _, _, stats_s = postprocess_field_masks("small", small_cohort, img_s, 1.0, cfg)
+    _, _, stats_l = postprocess_field_masks("large", large_cohort, img_l, 1.0, cfg)
 
-    final_masks, _, stats = postprocess_field_masks(
-        image_id="cohort_test",
-        raw_masks=masks,
-        nuclear_img=img,
-        pixel_size_um=1.0,
-        postprocess_config=cfg_a,
-    )
+    # Same configured bounds [0.25, 4] x 1200 um3 in both fields: the r=5 disks (~524 um3) pass,
+    # the r=12 disks (~7238 um3) exceed 2 x 1200 and become split candidates.
+    assert stats_s.n_split_candidates == 0
+    assert stats_l.n_split_candidates == 4
+    assert stats_s.n_size_gate_removed_small == 0
 
-    # 1000 um3 is within [0.25 * 1200, 4.0 * 1200] = [300, 4800]
-    assert int(final_masks.max()) == 1
+
+def test_shipped_if_configs_cite_reference_volume():
+    import yaml
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    for name in ("sweep.yaml", "prepost_ablation.yaml", "robustness_check.yaml"):
+        data = yaml.safe_load((repo / "configs" / name).read_text())
+        sections = [data.get("postprocessing") or {}] + [c.get("postprocessing") or {} for c in data["combos"]]
+        for sec in sections:
+            if not sec.get("enabled"):
+                continue
+            gate = sec.get("size_gate") or {}
+            assert gate.get("reference_vol_um3"), f"{name}: enabled post-processing without reference_vol_um3"
+            assert gate.get("reference_citation"), f"{name}: reference_vol_um3 without a citation"
 
 
 def test_robustness_metric_is_relative():

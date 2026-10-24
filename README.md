@@ -5,7 +5,7 @@
 [![Cellpose-SAM](https://img.shields.io/badge/Cellpose--SAM-cpsam__v2-green.svg)](https://www.cellpose.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-An end-to-end, deterministic image analysis suite designed to quantify cancer spheroid morphology, volumetric growth kinetics, and planar nuclear packing density across engineered biomaterial hydrogels.
+An end-to-end, seeded and provenance-tracked image analysis suite to quantify cancer spheroid morphology, volume change, and planar nuclear packing density across engineered biomaterial hydrogels. CPU runs are bitwise reproducible; GPU/MPS inference is reproducible within a small tolerance (see [Validation](docs/VALIDATION.md)).
 
 ---
 
@@ -43,7 +43,7 @@ For in-depth specifications, consult our documentation:
 | Guide | Description |
 | :--- | :--- |
 | **[Dataset & Data Structure](docs/DATA.md)** | Directory layouts, filename conventions, optical calibration, and data acquisition. |
-| **[Pipeline Validation](docs/VALIDATION.md)** | Ground-truth synthetic recoveries, manual count agreement, and backend comparisons. |
+| **[Pipeline Validation](docs/VALIDATION.md)** | What has been validated (synthetic ground truth, statistics) and what has not yet (manual counts, cross-backend). |
 | **[Beginner's Guide](docs/BEGINNER_GUIDE.md)** | Step-by-step tutorial, configuration breakdown, and result interpretation. |
 | **[Agents & Maintainers](docs/AGENTS_AND_MAINTAINERS.md)** | Architecture, data contracts, caching mechanisms, and engineering guidelines. |
 | **[Reproducibility & Troubleshooting](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md)** | Preflight auditing, `run_metadata.json`, SHA-256 manifests, and issue remediation. |
@@ -60,8 +60,9 @@ For a fresh clone:
 uv venv
 source .venv/bin/activate
 
-# 2. Install package in editable mode with deep learning dependencies
-pip install -e .[dl]
+# 2. Install pinned dependencies, then the package (add [dev] for tests)
+uv pip install --require-hashes -r requirements-lock.txt
+uv pip install -e ".[dl]"
 
 # 3. Download and verify pinned Cellpose-SAM model weights
 python tools/fetch_models.py
@@ -129,3 +130,7 @@ matrix-mat if compare-biological --run-dir runs/104_PP11_full
 - **Known Limitations**:
   - Spherical volumes are estimated from 2D cross-sectional area: $V = \frac{\pi}{6} d_{\text{eq}}^3$. This assumes spherical geometry.
   - IF nuclear density readouts reflect single-plane confocal optical sections and are reported as planar areal density ($\text{nuclei/mm}^2$ of spheroid cross-section), not true 3D volumetric packing. True volumetric density requires 3D confocal z-stacks.
+  - **Statistical power is limited by the number of gels.** With 3–4 gels per condition, the smallest attainable two-sided gel-level permutation p-value is about 0.03–0.17, so after Holm correction across five materials no comparison can reach p < 0.05. Report effect sizes with their confidence intervals; adding gels is the only way to gain power.
+  - Bootstrap intervals are computed on the log₂ fold-change scale (`log2fc_ci_95_*`) and back-transformed (`bootstrap_ci_95_*`, fold-change scale). With very few gels the hierarchical bootstrap interval is itself unstable.
+- **IF inference**: per-field planar densities are averaged per gel and compared with the control by the same gel-level permutation test with Holm correction (`summary/summary_by_material.csv`: `p_raw`, `p_adj`, `min_achievable_p`). Field-level means/SDs are descriptive only.
+- **Provisional thresholds**: the IF nuclear reference volume (841.04 µm³) and blur threshold (Laplacian variance 150) were derived from this dataset and are marked provisional in `configs/*.yaml`.

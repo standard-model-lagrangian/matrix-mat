@@ -78,7 +78,7 @@ class TestSpheroidIFSweep(unittest.TestCase):
 
     def test_pairing_and_unpaired_enforcement(self):
         """Ensure unpaired image is detected and enforced."""
-        data_dir = Path("Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis")
+        data_dir = PROJECT_ROOT / "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
         if not data_dir.exists():
             self.skipTest("Data directory not present in environment")
 
@@ -257,6 +257,7 @@ class TestSpheroidIFSweep(unittest.TestCase):
             min_distance_um=3.0,
             min_vol_um3=100.0,
             max_vol_um3=5000.0,
+            reference_vol_um3=841.04,
         )
 
         n_found = int(result_mask.max())
@@ -385,17 +386,17 @@ class TestSpheroidIFSweep(unittest.TestCase):
     def test_density_outlier_flag_and_small_n(self):
         """Density outlier flag test: flags density IQR outliers and skips IQR for materials with n < 3."""
         # 1. Material 'Mat' has 4 images; one has an extreme density outlier
-        m1 = ImageQCMetrics("img1", "Mat", "Gel1", 50, 50, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=20000.0)
-        m2 = ImageQCMetrics("img2", "Mat", "Gel2", 52, 52, 0, 10.0, 210.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=21000.0)
-        m3 = ImageQCMetrics("img3", "Mat", "Gel3", 48, 48, 0, 10.0, 220.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=20500.0)
-        m4 = ImageQCMetrics("img4", "Mat", "Gel4", 250, 250, 0, 10.0, 205.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=180000.0)  # Extreme outlier
+        m1 = ImageQCMetrics("img1", "Mat", "Gel1", 50, 50, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=20000.0)
+        m2 = ImageQCMetrics("img2", "Mat", "Gel2", 52, 52, 0, 10.0, 210.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=21000.0)
+        m3 = ImageQCMetrics("img3", "Mat", "Gel3", 48, 48, 0, 10.0, 220.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=20500.0)
+        m4 = ImageQCMetrics("img4", "Mat", "Gel4", 250, 250, 0, 10.0, 205.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=180000.0)  # Extreme outlier
 
         # 2. Material 'S46D10' has n=2 (< 3 images)
-        s1 = ImageQCMetrics("s_img1", "S46D10", "Gel1", 30, 30, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=15000.0)
-        s2 = ImageQCMetrics("s_img2", "S46D10", "Gel2", 150, 150, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=95000.0)
+        s1 = ImageQCMetrics("s_img1", "S46D10", "Gel1", 30, 30, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=15000.0)
+        s2 = ImageQCMetrics("s_img2", "S46D10", "Gel2", 150, 150, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=95000.0)
 
         cohort = [m1, m2, m3, m4, s1, s2]
-        res = apply_cohort_qc_flags(cohort, qc_config={"outlier_iqr_factor": 1.5})
+        res = apply_cohort_qc_flags(cohort, qc_config={"outlier_iqr_factor": 1.5, "blur_abs_threshold": 50.0})
 
         res_by_id = {m.image_id: m for m in res}
 
@@ -413,9 +414,11 @@ class TestSpheroidIFSweep(unittest.TestCase):
     @pytest.mark.dl
     def test_synthetic_blob_segmentation(self):
         """Sanity check: Cellpose-SAM recovers synthetic nuclei blobs within reasonable tolerance."""
-        model_path = Path("models/cpsam_v2")
+        pytest.importorskip("cellpose")
+        env_root = os.environ.get("MATRIX_MAT_MODELS_ROOT")
+        model_path = Path(env_root) / "cpsam_v2" if env_root else PROJECT_ROOT / "models" / "cpsam_v2"
         if not model_path.exists():
-            self.skipTest("CPSAM model weights not available locally")
+            self.skipTest("cpsam_v2 weights not found (set MATRIX_MAT_MODELS_ROOT or run tools/fetch_models.py)")
 
         rng = np.random.default_rng(42)
         img = np.zeros((256, 256), dtype=np.uint8)

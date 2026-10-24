@@ -12,18 +12,23 @@
 # ------------------------------------------------------------------------------
 # 1. Dataset Directory Paths
 # ------------------------------------------------------------------------------
-# Paths can be relative to the repository root or absolute.
-# Note: Folder names containing spaces are fully supported.
+# Paths use root placeholders resolved from environment variables:
+#   ${DATA_ROOT}   <- MATRIX_MAT_DATA_ROOT   (default: ./data)
+#   ${OUTPUT_ROOT} <- MATRIX_MAT_OUTPUT_ROOT (default: ./output)
+#   ${MODELS_ROOT} <- MATRIX_MAT_MODELS_ROOT (default: ./models)
+#   ${CACHE_ROOT}  <- MATRIX_MAT_CACHE_DIR   (default: ${OUTPUT_ROOT}/cache/masks)
+# CLI flags (--t0-dir, --output-dir, ...) override these values.
 t0_dir: "${DATA_ROOT}/brightfield/Day0"
 t7_dir: "${DATA_ROOT}/brightfield/Day7"
 
 # Output directory where all CSVs, overlays, contact sheets, and figures are written
-output_dir: "output"
+output_dir: "${OUTPUT_ROOT}"
 
 # Review directory for human-in-the-loop manual mask validation
 # Drop manual 16-bit PNG masks into this folder (<image_id>.png); the pipeline
-# will prioritize them and compute Dice / IoU agreement in validation.csv
-review_dir: "review"
+# will prioritize them and compute Dice / IoU agreement in validation.csv.
+# The folder is read only and is not created if absent.
+review_dir: "${DATA_ROOT}/review"
 
 # ------------------------------------------------------------------------------
 # 2. Optical Calibration & Determinism
@@ -69,12 +74,14 @@ segmentation:
   primary_backend: "cpsam"
   fallback_policy: "strict"  # 'strict' (default, fails/flags image on empty/implausible mask) or 'per_image' (opt-in exploration)
 
-  # Path to local Cellpose-SAM model weights (bypasses online HuggingFace downloads)
-  cpsam_model_path: "models/cpsam_v2"
+  # Path to local Cellpose-SAM model weights, verified against models.lock.json
+  # (fetch with `python tools/fetch_models.py`; a missing file aborts the run)
+  cpsam_model_path: "${MODELS_ROOT}/cpsam_v2"
 
   # Directory for lossless 16-bit PNG mask caching
-  # Prevents redundant re-inference on subsequent runs
-  cache_dir: "masks"
+  # Prevents redundant re-inference on subsequent runs. Keys are content-addressed
+  # (image bytes + segmentation parameters + model hash + package version).
+  cache_dir: "${CACHE_ROOT}"
 
   # Cellpose-SAM inference parameters
   cpsam_expected_diameter_px: 160.0

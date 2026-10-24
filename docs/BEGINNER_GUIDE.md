@@ -23,9 +23,9 @@ This repository contains two specialized, production-grade image analysis pipeli
                                   ▼                                                                 ▼
                     • Multi-spheroid segmentation                                       • Cellpose-SAM nuclear seg
                     • Optical scale extraction (um)                                     • Rolling-ball background
-                    • Strict QC gating (Zero drops)                                     • Clump splitting & size gate
+                    • QC flags (PASS/REVIEW/FAIL)                                       • Clump splitting & size gate
                     • Hungarian centroid pairing                                        • Border clearance exclusion
-                    • Biomass & hypertrophy metrics                                     • Nuclei density per mm³
+                    • Biomass & hypertrophy metrics                                     • Planar density (nuclei/mm²)
                     • Presentation Figures 1–6                                          • Cross-material comparisons
 ```
 
@@ -272,7 +272,7 @@ This generates `runs/comparison_prepost/effect_summary.md`, side-by-side disagre
 | `preprocess.flat_field_sigma`| float | `0.0` | Gaussian sigma for background division. Set to `0.0` (disabled) to avoid flattening spheroid core contrast. |
 | `preprocess.percentile_low` | float | `1.0` | Lower intensity percentile clipping bound (suppresses dead pixels). |
 | `preprocess.percentile_high`| float | `99.0`| Upper intensity percentile clipping bound (anchors bright gel background). |
-| `segmentation.backend` | str | `"cpsam"` | Deep learning instance segmentation backend: `'cpsam'`, `'cyto3'`, or `'classical'`. |
+| `segmentation.primary_backend` | str | `"cpsam"` | Segmentation backend for the whole run: `'cpsam'`, `'cpdino'` (needs the dinov3 package), or `'classical'`. Unknown names are rejected. |
 | `qc.min_d_um` | float | `40.0` | Rejects objects with equivalent diameter $< 40\,\mu\mathrm{m}$ (camera dust, debris). |
 | `qc.max_d_um` | float | `1500.0` | Rejects objects $> 1500\,\mu\mathrm{m}$ (optical artifacts, meniscus edges). |
 | `qc.border_margin_px` | int | `15` | Rejects spheroids touching or within 15 px of image boundaries (clipped volumes). |

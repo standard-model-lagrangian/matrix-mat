@@ -38,17 +38,22 @@ def compute_file_sha256(filepath: Union[str, Path], block_size: int = 65536) -> 
     return hasher.hexdigest()
 
 
-def get_git_info() -> Dict[str, Any]:
-    """Retrieves current git commit hash, branch, and dirty status."""
+# Repository that contains this package (src/matrix_mat/core/provenance.py -> repo root)
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def get_git_info(repo_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Retrieves git commit hash, branch, and dirty status of the code that is running (not the cwd)."""
+    repo = Path(repo_dir) if repo_dir is not None else REPO_ROOT
     try:
         commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True
+            ["git", "rev-parse", "HEAD"], cwd=repo, stderr=subprocess.DEVNULL, text=True
         ).strip()
         branch = subprocess.check_output(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL, text=True
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=repo, stderr=subprocess.DEVNULL, text=True
         ).strip()
         status = subprocess.check_output(
-            ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True
+            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=repo, stderr=subprocess.DEVNULL, text=True
         ).strip()
         is_dirty = len(status) > 0
         return {
@@ -93,9 +98,9 @@ def get_cellpose_version() -> str:
 
 
 def get_lockfile_sha256() -> Optional[str]:
-    """Computes SHA-256 of models.lock.json or dependencies lockfile if available."""
-    for lock_name in ("models.lock.json", "uv.lock", "poetry.lock"):
-        p = Path(lock_name)
+    """Computes SHA-256 of the dependency lockfile shipped with the package."""
+    for lock_name in ("requirements-lock.txt", "uv.lock", "poetry.lock"):
+        p = REPO_ROOT / lock_name
         if p.exists() and p.is_file():
             try:
                 return compute_file_sha256(p)
@@ -104,9 +109,20 @@ def get_lockfile_sha256() -> Optional[str]:
     return None
 
 
+def get_models_lock_sha256() -> Optional[str]:
+    """Computes SHA-256 of models.lock.json (pinned model weight manifest)."""
+    p = REPO_ROOT / "models.lock.json"
+    if p.exists() and p.is_file():
+        try:
+            return compute_file_sha256(p)
+        except Exception:
+            pass
+    return None
+
+
 def get_default_weights_sha256(model_ident: str = "cpsam_v2") -> Optional[str]:
-    """Retrieves expected or computed weights SHA-256 from models.lock.json or disk."""
-    lock_path = Path("models.lock.json")
+    """Retrieves the pinned weights SHA-256 from models.lock.json (the backend refuses any other file)."""
+    lock_path = REPO_ROOT / "models.lock.json"
     if lock_path.exists():
         try:
             with open(lock_path, "r", encoding="utf-8") as f:
@@ -117,12 +133,6 @@ def get_default_weights_sha256(model_ident: str = "cpsam_v2") -> Optional[str]:
         except Exception:
             pass
 
-    for candidate in [Path("models/cpsam_v2"), Path(f"models/{model_ident}")]:
-        if candidate.exists() and candidate.is_file():
-            try:
-                return compute_file_sha256(candidate)
-            except Exception:
-                pass
     return None
 
 
@@ -152,11 +162,17 @@ def write_run_metadata(
     target_dir.mkdir(parents=True, exist_ok=True)
 
     final_lockfile_sha256 = lockfile_sha256 or get_lockfile_sha256()
-    final_weights_sha256 = weights_sha256 or get_default_weights_sha256()
     active_backend = backend or (
         getattr(getattr(config, "segmentation", None), "primary_backend", None)
         if config else None
     ) or (resolved_params.get("model_name") if resolved_params else None) or "cpsam"
+    # Only deep-learning backends use weights; the classical backend must not claim a weights hash.
+    if weights_sha256:
+        final_weights_sha256: Optional[str] = weights_sha256
+    elif active_backend in ("cpsam", "cpsam_v2"):
+        final_weights_sha256 = get_default_weights_sha256()
+    else:
+        final_weights_sha256 = None
 
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     git_info = get_git_info()
@@ -175,6 +191,7 @@ def write_run_metadata(
         "git": git_info,
         "weights_sha256": final_weights_sha256,
         "lockfile_sha256": final_lockfile_sha256,
+        "models_lock_sha256": get_models_lock_sha256(),
         "wall_time_seconds": round(wall_time_sec, 3),
         "random_seed": random_seed if random_seed is not None else getattr(config, "random_seed", 42),
         "environment": {

@@ -32,7 +32,7 @@ def compute_cache_key(
     image: np.ndarray | bytes,
     config: Any,
     model_hash: Optional[str] = None,
-    package_version: str = "0.1.0",
+    package_version: Optional[str] = None,
 ) -> str:
     """
     Compute unique content-addressed cache key:
@@ -50,7 +50,7 @@ def compute_cache_key(
     # 2. Canonical JSON of segmentation parameters
     if hasattr(config, "model_dump"):
         cfg_dict = config.model_dump()
-    elif is_dataclass(config):
+    elif is_dataclass(config) and not isinstance(config, type):
         cfg_dict = asdict(config)
     elif isinstance(config, dict):
         cfg_dict = dict(config)
@@ -80,7 +80,10 @@ def compute_cache_key(
     # 3. Model weights hash
     model_sha = hashlib.sha256(str(model_hash or "none").encode("utf-8")).hexdigest()
 
-    # 4. Package version hash
+    # 4. Package version hash (cached metadata semantics change between releases)
+    if package_version is None:
+        import matrix_mat
+        package_version = matrix_mat.__version__
     pkg_sha = hashlib.sha256(str(package_version).encode("utf-8")).hexdigest()
 
     # Combined composite SHA256 key
@@ -153,7 +156,7 @@ class MaskCache:
             return {}
         cache_path = self.get_cache_path(image_id)
         meta_path = cache_path.with_suffix(".meta.json")
-        if meta_path.exists():
+        if meta_path.exists() and cache_path.exists():
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
                     return json.load(f)
@@ -222,4 +225,6 @@ class MaskCache:
                 count += 1
             except Exception as e:
                 logger.warning(f"Could not delete {p}: {e}")
+            # Remove the metadata sidecar too, so no stale flags outlive their mask.
+            p.with_suffix(".meta.json").unlink(missing_ok=True)
         return count

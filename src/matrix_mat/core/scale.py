@@ -20,6 +20,11 @@ import tifffile
 logger = logging.getLogger("matrix_mat.core.scale")
 
 
+PLAUSIBLE_UM_PER_PX = (0.05, 20.0)
+# OME-XML UnitsLength symbols -> micrometres
+OME_LENGTH_TO_UM = {"µm": 1.0, "um": 1.0, "\u03bcm": 1.0, "nm": 1e-3, "mm": 1e3, "cm": 1e4, "m": 1e6, "pm": 1e-6}
+
+
 @dataclass
 class ScaleInfo:
     """Metadata extracted for optical scaling and calibration."""
@@ -70,6 +75,8 @@ class ScaleExtractor:
         try:
             with tifffile.TiffFile(image_path) as tif:
                 for page in tif.pages:
+                    if not isinstance(page, tifffile.TiffPage):
+                        continue
                     tags = {tag.code: tag.value for tag in page.tags.values()}
 
                     # Strategy 2: Check EVOS Tag 37510
@@ -251,23 +258,29 @@ class ScaleExtractor:
 
             if pixels_elem is not None:
                 phys_x = pixels_elem.attrib.get("PhysicalSizeX")
-                size_x = pixels_elem.attrib.get("SizeX", str(image_size[0]))
-
                 if phys_x:
-                    px_val = float(phys_x)
-                    if px_val > 100 and float(size_x) > 100:
-                        pixel_size = px_val / float(size_x)
-                    else:
-                        pixel_size = px_val
+                    # OME PhysicalSizeX is the size of ONE pixel, in PhysicalSizeXUnit (default micrometre).
+                    unit = pixels_elem.attrib.get("PhysicalSizeXUnit", "µm").strip()
+                    factor = OME_LENGTH_TO_UM.get(unit)
+                    if factor is None:
+                        logger.warning(f"Unsupported OME PhysicalSizeXUnit {unit!r}; ignoring OME scale")
+                        return None
+                    pixel_size = float(phys_x) * factor
 
-                    microscope_elem = root.find(".//ome:Microscope", ns) or root.find(".//Microscope")
+                    microscope_elem = root.find(".//ome:Microscope", ns)
+                    if microscope_elem is None:
+                        microscope_elem = root.find(".//Microscope")
                     model = microscope_elem.attrib.get("Model") if microscope_elem is not None else "OME Microscope"
 
+                    plausible = PLAUSIBLE_UM_PER_PX[0] <= pixel_size <= PLAUSIBLE_UM_PER_PX[1]
                     return ScaleInfo(
                         pixel_size_um=pixel_size,
-                        source="OME-XML Tag 270",
+                        source="OME-XML Tag 270" if plausible else "OME-XML Tag 270 (implausible)",
                         instrument_model=model,
-                        is_calibrated=True,
+                        is_calibrated=plausible,
+                        warning=None if plausible else (
+                            f"OME pixel size {pixel_size} um/px outside plausible range {PLAUSIBLE_UM_PER_PX}"
+                        ),
                     )
         except Exception as e:
             logger.debug(f"Failed parsing OME-XML: {e}")

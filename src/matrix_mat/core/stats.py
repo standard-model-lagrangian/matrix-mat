@@ -72,7 +72,7 @@ def hierarchical_bootstrap_ci(
 
     for _ in range(n_boot):
         chosen_clusters = rng.choice(active_clusters, size=len(active_clusters), replace=True)
-        resampled_vals = []
+        resampled_vals: List[float] = []
         for c in chosen_clusters:
             vals = cluster_data[c]
             n_obs = len(vals)
@@ -143,7 +143,8 @@ def cluster_permutation_test(
 
     # Check if exact enumeration is small
     n_comb = math.comb(n_total, n_ref)
-    min_achievable_p = 1.0 / n_comb
+    # Lower bound used for Monte Carlo; replaced by the exact value when enumerating.
+    min_achievable_p = (2.0 if n_ref == n_treat else 1.0) / n_comb
 
     if n_comb <= 2000:
         # Enumerate exact splits
@@ -157,6 +158,9 @@ def cluster_permutation_test(
         diffs_arr = np.array(diffs)
         # Exact two-sided p-value
         p_val = float(np.mean(diffs_arr >= obs_diff - 1e-12))
+        # Smallest attainable p is the share of splits tied at the most extreme |difference|
+        # (for balanced groups the mirror-image split always ties, so this is at least 2/C).
+        min_achievable_p = float(np.mean(diffs_arr >= diffs_arr.max() - 1e-12))
         return max(p_val, min_achievable_p), min_achievable_p
     else:
         rng = np.random.default_rng(seed)

@@ -6,49 +6,53 @@ This document details the expected directory layout, image acquisition metadata,
 
 ## 1. Directory Structure
 
-By default, datasets are organized under the path specified by the `MATRIX_MAT_DATA_ROOT` environment variable (defaulting to `./data`):
+Shipped configs locate data through `${DATA_ROOT}` (environment variable `MATRIX_MAT_DATA_ROOT`, default `./data`):
 
 ```
 data/
 ├── brightfield/
-│   ├── Day0/                  # Baseline Day 0 brightfield TIFFs
-│   │   ├── S34D30-Gel1-FOV1.tif
-│   │   ├── S34D30-Gel1-FOV2.tif
-│   │   └── ...
-│   └── Day7/                  # Endpoint Day 7 brightfield TIFFs
-│       ├── S34D30-Gel1-FOV1.tif
-│       ├── S34D30-Gel1-FOV2.tif
-│       └── ...
-└── if/                        # Immunofluorescence confocal TIFFs
-    ├── SKOV3 Spheroid D7 Mor_Mat-Gel1_ch00.tif   # DAPI / Hoechst nuclear channel
-    ├── SKOV3 Spheroid D7 Mor_Mat-Gel1_ch02.tif   # Phalloidin actin channel
-    └── ...
+│   ├── Day0/        # e.g. "Day0 Mat gel1_0001_TRANS.tif"
+│   └── Day7/        # e.g. "Day7 Mat gel1_0001_TRANS.tif"
+└── if/              # e.g. "SKOV3 Spheroid D7 Mor_Mat-Gel1-2_ch00.tif" (+ matching _ch02)
 ```
 
-Precedence order for path resolution is:
-1. Explicit CLI arguments (`--t0-dir`, `--t7-dir`, `--data-dir`)
-2. Environment variables (`MATRIX_MAT_DATA_ROOT`, `MATRIX_MAT_OUTPUT_ROOT`)
-3. Shipped configuration defaults (`configs/*.yaml`)
+The original acquisition folders are named differently (`Spheroid Day0 260805`, `Spheroid D7 260812`,
+`spheroids staining:IF /nuclei density analysis`, note the trailing spaces and colon). Either symlink them into
+the layout above or pass them explicitly, e.g.
+`matrix-mat bf run --t0-dir "<…>/Spheroid Day0 260805" --t7-dir "<…>/Spheroid D7 260812"`.
+
+Other roots: `${OUTPUT_ROOT}` (`MATRIX_MAT_OUTPUT_ROOT`, default `./output`), `${MODELS_ROOT}`
+(`MATRIX_MAT_MODELS_ROOT`, default `./models`), and `${CACHE_ROOT}` (`MATRIX_MAT_CACHE_DIR`, default
+`${OUTPUT_ROOT}/cache/masks`).
+
+Precedence: explicit CLI flags > `MATRIX_MAT_*` environment variables > defaults.
 
 ---
 
 ## 2. Filename Conventions
 
-### Brightfield Spheroids
-Brightfield files follow the format `<Condition>-<GelID>-<FOV>.<ext>`:
-- **Condition**: Hydrogel formulation code, e.g., `Mat` (Matrigel baseline control), `S34D30`, `S46D10`.
-- **GelID**: Biological replicate identifier representing a discrete hydrogel culture unit, e.g., `Gel1`, `Gel2`, `Gel3`.
-- **FOV**: Field-of-view identifier within the gel, e.g., `FOV1`, `FOV2`.
+### Brightfield spheroids
 
-Pairs are matched between `Day0` and `Day7` by matching identical `(Condition, GelID, FOV)` coordinates.
+The parser (`matrix_mat.core.naming.parse_image_filename`) expects
 
-### Immunofluorescence (IF) Confocal
-IF files follow the EVOS/confocal channel naming:
-`SKOV3 Spheroid D7 Mor_<Condition>-<GelID>_<Channel>.tif`
-- `ch00`: Nuclear channel (DAPI / Hoechst 33342, 405 nm excitation).
-- `ch02`: Spheroid boundary / cytoplasm channel (Phalloidin F-actin, 594 nm excitation).
+`Day<N> <Condition> gel<G>_<FOV>_TRANS.tif`, e.g. `Day0 S34D30 gel2_0003_TRANS.tif`
 
-Pairs of `(ch00, ch02)` sharing the same base identifier are automatically discovered and co-registered.
+- **Day** `<N>`: the timepoint (`Day0`, `D7`, …). It can instead come from the source folder when configured.
+- **Condition**: hydrogel formulation (`Mat` is the Matrigel control, `S34D30`, `S46D10`, …).
+- **gel** `<G>`: the biological replicate. This is the unit of statistical inference.
+- **FOV**: zero-padded field of view within the gel.
+
+Day 0 and Day 7 objects are paired within the same `(Condition, gel, FOV)`. A filename that does not match
+raises an error; there is no default gel or FOV.
+
+### Immunofluorescence (IF)
+
+`SKOV3 Spheroid D7 Mor_<Material>-Gel<G>[-…]_<channel>.tif`
+- `ch00`: nuclear channel (DAPI / Hoechst).
+- `ch02`: F-actin (phalloidin), used for the spheroid cross-section mask.
+
+`Gel<G>` is the replicate (inference unit). Multiple fields from one gel (`Gel1-2`, `Gel1-3`) are averaged
+before testing.
 
 ---
 
@@ -62,4 +66,4 @@ Accurate physical scale extraction is mandatory for morphological measurement:
 
 ## 4. Obtaining the Experimental Data
 
-For institutional access to the raw experimental datasets, contact the repository maintainers or refer to the laboratory data repository archive. Synthetic test fixtures and smoke test datasets are provided out-of-the-box in `tests/data/` and via programmatic generators.
+For institutional access to the raw experimental datasets, contact the repository maintainers or refer to the laboratory data repository archive. Synthetic test fixtures are provided in `tests/fixtures/` (brightfield and IF).

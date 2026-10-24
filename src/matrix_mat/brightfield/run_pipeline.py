@@ -478,7 +478,7 @@ def render_reports(
         pres_figs = generate_all_presentation_figures(out_dir, objects_df, pairs_df, wells_df, condition_df=condition_summary_df)
         fig_paths.update(pres_figs)
     except Exception as e:
-        logger.warning(f"Failed to generate presentation figures: {e}")
+        logger.exception(f"Failed to generate presentation figures: {e!r}")
 
     report_gen = ReportGenerator(config, out_dir)
     md_path, html_path = report_gen.generate(
@@ -673,6 +673,10 @@ def main(args: Optional[Sequence[str]] = None) -> int:
         if not objs_p.exists():
             logger.error(f"Cannot generate presentation figures: '{objs_p}' does not exist. Run pipeline first.")
             return 1
+        from matrix_mat.reporting.presentation_plots import (
+            compute_well_growth_comparison,
+            generate_all_presentation_figures,
+        )
         print(f"\n[*] Generating presentation figures in {out_p}/figures/ ...\n")
         objs_df = pd.read_csv(objs_p)
         pairs_df = pd.read_csv(pairs_p) if pairs_p.exists() else pd.DataFrame()

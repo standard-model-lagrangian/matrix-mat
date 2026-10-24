@@ -292,7 +292,8 @@ def preprocess_field(
     Execute preprocessing pipeline on nuclear and actin channels.
     Optionally saves intermediate TIFFs and inspection montage into output_dir.
     """
-    enabled = bool(preprocess_config.get("enabled", True))
+    # Default matches the config schema: preprocessing runs only when explicitly enabled.
+    enabled = bool(preprocess_config.get("enabled", False))
     if not enabled:
         # Passthrough mode
         raw_nuc_f32 = np.clip(nuclear_img.astype(np.float32) / 255.0, 0.0, 1.0)

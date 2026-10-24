@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -111,6 +111,10 @@ class IFQCConfig(BaseModel):
     border_margin_px: int = 5
     edge_heavy_fraction: float = 0.25
     saturation_fraction_max: float = 0.005
+    # Blur flag: an absolute Laplacian-variance threshold on the raw nuclear channel. The cohort-percentile
+    # mode flags the worst N% of fields by construction and must be chosen explicitly.
+    blur_mode: Literal["absolute", "cohort_percentile"] = "absolute"
+    blur_abs_threshold: Optional[float] = None
     blur_percentile_cutoff: float = 10.0
     duplicate_iou_threshold: float = 0.50
     outlier_iqr_factor: float = 1.5
@@ -144,9 +148,7 @@ class IFSweepConfig(BaseModel):
             raise FileNotFoundError(f"Config file not found: {yaml_path}")
         with open(yaml_path, "r", encoding="utf-8") as f:
             content = f.read()
-        import os
-        content = os.path.expandvars(content)
-        data_root = os.environ.get("MATRIX_MAT_DATA_ROOT", "data")
-        content = content.replace("${DATA_ROOT}", data_root)
+        from matrix_mat.core.paths import expand_root_placeholders
+        content = expand_root_placeholders(content)
         data = yaml.safe_load(content) or {}
         return cls(**data)

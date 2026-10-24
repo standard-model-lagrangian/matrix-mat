@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import cv2
 import numpy as np
@@ -226,7 +226,6 @@ def extract_objects_and_image_features(
         spheroid_area_um2 = float("nan")
 
     nuclei_per_mm2 = compute_areal_density(n_valid, spheroid_area_um2)
-    density_per_mm3 = (float(n_valid) / sph_vol_um3 * 1e9) if (sph_vol_um3 is not None and not np.isnan(sph_vol_um3) and sph_vol_um3 > 0) else float("nan")
     median_nuc_vol = float(np.median(nuclear_volumes)) if nuclear_volumes else 0.0
     median_actin = float(np.median(actin_img))
 
@@ -240,7 +239,6 @@ def extract_objects_and_image_features(
         "spheroid_area_um2": round(spheroid_area_um2, 1) if not np.isnan(spheroid_area_um2) else np.nan,
         "spheroid_volume_um3": round(sph_vol_um3, 1) if (sph_vol_um3 is not None and not np.isnan(sph_vol_um3)) else np.nan,
         "nuclei_per_mm2": round(nuclei_per_mm2, 2) if not np.isnan(nuclei_per_mm2) else np.nan,
-        "nuclei_density_per_mm3": round(density_per_mm3, 2) if not np.isnan(density_per_mm3) else np.nan,
         "median_nuclear_volume_um3": round(median_nuc_vol, 2),
         "median_actin_intensity": round(median_actin, 2),
         "flag_summary": qc_flags_list if qc_flags_list else "clean",

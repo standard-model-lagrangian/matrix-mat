@@ -17,12 +17,14 @@ from spheroid_pipeline_v2.config import (
     ArtifactConfig,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 class TestConfigYAMLDataclassMapping(unittest.TestCase):
     """Asserts that YAML config keys are strictly mapped to dataclasses without silent drops."""
 
     def test_spheroid_brightfield_yaml_keys_map_to_dataclass(self):
-        yaml_path = Path("configs/spheroid_brightfield.yaml")
+        yaml_path = (REPO_ROOT / str(REPO_ROOT / "configs/spheroid_brightfield.yaml"))
         self.assertTrue(yaml_path.exists(), f"Missing config file: {yaml_path}")
 
         with open(yaml_path, "r", encoding="utf-8") as f:
@@ -55,7 +57,7 @@ class TestConfigYAMLDataclassMapping(unittest.TestCase):
     def test_cli_overrides_retain_dataclass_types(self):
         """Asserts that nested cli_overrides do not replace dataclass instances with dicts."""
         cfg = PipelineConfig.from_yaml(
-            "configs/spheroid_brightfield.yaml",
+            str(REPO_ROOT / "configs/spheroid_brightfield.yaml"),
             cli_overrides={
                 "segmentation": {"force_recompute": True},
                 "output_dir": "custom_output",
@@ -69,7 +71,7 @@ class TestConfigYAMLDataclassMapping(unittest.TestCase):
 
     def test_if_sweep_yaml_loads_without_errors(self):
         """Asserts that configs/sweep.yaml is valid YAML with required structure."""
-        yaml_path = Path("configs/sweep.yaml")
+        yaml_path = (REPO_ROOT / str(REPO_ROOT / "configs/sweep.yaml"))
         if yaml_path.exists():
             with open(yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)

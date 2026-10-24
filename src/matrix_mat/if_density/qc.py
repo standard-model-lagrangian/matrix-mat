@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -44,8 +44,7 @@ class ImageQCMetrics:
     flag_any: bool
     flags_list: str
     flag_density_outlier: bool = False
-    nuclei_density_per_mm3: float = 0.0
-    nuclei_per_mm2: float = 0.0
+    nuclei_per_mm2: float = float("nan")
     n_nuclei_valid: int = 0
     n_border_excluded: int = 0
     debris_count_pre: int = 0
@@ -172,8 +171,7 @@ def compute_image_qc_metrics(
     n_dups_removed: int,
     pixel_size_um: float,
     qc_config: Dict[str, Any],
-    nuclei_density_per_mm3: float = 0.0,
-    nuclei_per_mm2: float = 0.0,
+    nuclei_per_mm2: float = float("nan"),
     n_nuclei_valid: Optional[int] = None,
     n_border_excluded: int = 0,
     debris_count_pre: Optional[int] = None,
@@ -280,7 +278,6 @@ def compute_image_qc_metrics(
         flag_any=False,
         flags_list="",
         flag_density_outlier=False,  # Evaluated in cohort pass
-        nuclei_density_per_mm3=round(nuclei_density_per_mm3, 2),
         nuclei_per_mm2=round(nuclei_per_mm2, 2) if not np.isnan(nuclei_per_mm2) else float("nan"),
         n_nuclei_valid=n_nuclei_valid,
         n_border_excluded=n_border_excluded,
@@ -303,13 +300,22 @@ def apply_cohort_qc_flags(
         return metrics_list
 
     # 1. Blurry threshold (cohort-wide Laplacian variance percentile or absolute threshold)
+    blur_mode = qc_config.get("blur_mode", "absolute")
     blur_abs_threshold = qc_config.get("blur_abs_threshold", None)
-    if blur_abs_threshold is not None:
-        blur_threshold = float(blur_abs_threshold)
-    else:
+    if blur_mode == "cohort_percentile":
         blur_cutoff_pct = float(qc_config.get("blur_percentile_cutoff", 10.0))
         all_laps = [m.nuclear_laplacian_var for m in metrics_list]
         blur_threshold = float(np.percentile(all_laps, blur_cutoff_pct)) if all_laps else 0.0
+        logger.warning(
+            f"blur_mode=cohort_percentile flags the lowest {blur_cutoff_pct:.0f}% of fields by construction"
+        )
+    elif blur_abs_threshold is None:
+        raise ValueError(
+            "qc.blur_abs_threshold must be set (absolute Laplacian variance of the raw nuclear channel), "
+            "or choose qc.blur_mode: cohort_percentile explicitly"
+        )
+    else:
+        blur_threshold = float(blur_abs_threshold)
 
     # 2. Density and count outlier by material
     by_material: Dict[str, List[ImageQCMetrics]] = {}
@@ -327,12 +333,10 @@ def apply_cohort_qc_flags(
             )
             continue
 
-        # Density outlier (evaluated on planar areal density nuclei_per_mm2, with fallback to legacy nuclei_density_per_mm3)
+        # Density outlier (reported separately; evaluated on planar areal density nuclei_per_mm2)
         dens_vals = []
         for m in group:
             val = m.nuclei_per_mm2
-            if val is None or np.isnan(val) or val <= 0:
-                val = m.nuclei_density_per_mm3
             dens_vals.append(val if (val is not None and not np.isnan(val) and val > 0) else np.nan)
         valid_densities = [d for d in dens_vals if not np.isnan(d)]
         if len(valid_densities) >= 3:

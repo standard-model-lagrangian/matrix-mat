@@ -46,3 +46,16 @@ def resolve_cache_root(cli_val: Optional[Union[str, Path]] = None) -> Path:
         return Path(os.environ["MATRIX_MAT_CACHE_DIR"])
     output_root = resolve_output_root()
     return output_root / "cache" / "masks"
+
+
+def expand_root_placeholders(text: str) -> str:
+    """Substitutes ${DATA_ROOT}, ${OUTPUT_ROOT}, ${MODELS_ROOT} and ${CACHE_ROOT} from MATRIX_MAT_* env vars."""
+    roots = {
+        "DATA_ROOT": resolve_data_root(),
+        "OUTPUT_ROOT": resolve_output_root(),
+        "MODELS_ROOT": resolve_models_root(),
+        "CACHE_ROOT": resolve_cache_root(),
+    }
+    for name, value in roots.items():
+        text = text.replace("${" + name + "}", str(value))
+    return os.path.expandvars(text)

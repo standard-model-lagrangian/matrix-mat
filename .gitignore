@@ -72,3 +72,11 @@ analyses/paper_reproduction/audit/.pytest_cache/
 Hydrogel_BO/
 peptide_materials_ml/
 
+
+# Build / packaging artifacts
+*.egg-info/
+build/
+dist/
+
+# Matplotlib font caches
+**/.mplconfig/

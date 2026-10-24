@@ -48,7 +48,8 @@ def get_effective_fov_counts(df_all: pd.DataFrame) -> pd.DataFrame:
     """Computes effective physical FOVs per well by clustering multi-focal redundant planes."""
     eff_counts = []
     for (c, r, tp), grp in df_all.groupby(["condition", "replicate", "timepoint"]):
-        fovs = sorted(grp["fov"].unique())
+        # FOVs arrive as zero-padded strings in memory and as ints after a CSV round trip.
+        fovs = sorted({int(f) for f in grp["fov"].unique()})
         if len(fovs) <= 1:
             eff_counts.append({"condition": c, "replicate": r, "timepoint": tp, "n_fovs": len(fovs)})
             continue
@@ -62,9 +63,12 @@ def get_effective_fov_counts(df_all: pd.DataFrame) -> pd.DataFrame:
                 pair = tuple(sorted([curr_fov, other_fov]))
                 pair_matches[pair] = pair_matches.get(pair, 0) + 1
         adj = {f: set([f]) for f in fovs}
+        fov_ints = grp["fov"].astype(int)
         for (f1, f2), count in pair_matches.items():
-            n1 = len(grp[grp["fov"] == f1])
-            n2 = len(grp[grp["fov"] == f2])
+            if f1 not in adj or f2 not in adj:
+                continue
+            n1 = int((fov_ints == f1).sum())
+            n2 = int((fov_ints == f2).sum())
             min_n = min(n1, n2)
             if (min_n > 0 and count / min_n >= 0.65) or count >= 3:
                 adj[f1].add(f2)

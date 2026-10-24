@@ -12,6 +12,8 @@ import pytest
 
 from matrix_mat.cli import build_parser, main
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def test_cli_parser_builds():
     """Parser builds with bf and if subcommands."""
@@ -44,7 +46,7 @@ def test_no_dead_flags():
     # Check that bf run handles all defined options
     bf_run_args = parser.parse_args([
         "bf", "run",
-        "--config", "configs/spheroid_brightfield.yaml",
+        "--config", str(REPO_ROOT / "configs/spheroid_brightfield.yaml"),
         "--t0-dir", "data/brightfield/Day0",
         "--t7-dir", "data/brightfield/Day7",
         "--output-dir", "output",
@@ -65,7 +67,7 @@ def test_no_dead_flags():
     # Check if sweep handles all defined options
     if_sweep_args = parser.parse_args([
         "if", "sweep",
-        "--config", "configs/sweep.yaml",
+        "--config", str(REPO_ROOT / "configs/sweep.yaml"),
         "--output-dir", "runs",
         "--data-dir", "data/if",
         "--scope", "subset",
@@ -105,3 +107,55 @@ def test_readme_commands_parse():
                 commands_tested += 1
 
     assert commands_tested > 0, "No matrix-mat commands found in README.md to test"
+
+
+@pytest.mark.parametrize("backend", ["cyto3", "sam"])
+def test_cli_rejects_backends_that_do_not_exist(backend):
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["bf", "run", "--backend", backend])
+
+
+def test_cli_accepts_real_backends():
+    parser = build_parser()
+    for backend in ("cpsam", "cpdino", "classical"):
+        assert parser.parse_args(["bf", "run", "--backend", backend]).backend == backend
+
+
+def test_cli_does_not_override_yaml_paths_by_default():
+    """Without explicit flags, output/review dirs must come from the YAML, not CLI defaults."""
+    args = build_parser().parse_args(["bf", "run"])
+    assert args.output_dir is None
+    assert args.review_dir is None
+
+
+def test_bf_run_exit_code_nonzero_when_weights_missing(tmp_path, monkeypatch):
+    """matrix-mat bf run must exit non-zero when the configured model weights are absent."""
+    repo = Path(__file__).resolve().parents[2]
+    monkeypatch.setenv("MATRIX_MAT_MODELS_ROOT", str(tmp_path / "no_models"))
+    monkeypatch.chdir(tmp_path)
+    code = main([
+        "bf", "run",
+        "--config", str(repo / "configs" / "spheroid_brightfield.yaml"),
+        "--t0-dir", str(repo / "tests/fixtures/synthetic_dataset/Day0"),
+        "--t7-dir", str(repo / "tests/fixtures/synthetic_dataset/Day7"),
+        "--output-dir", str(tmp_path / "out"),
+        "--backend", "cpsam",
+    ])
+    assert code != 0
+
+
+def test_bf_run_exit_code_zero_on_success(tmp_path, monkeypatch):
+    repo = Path(__file__).resolve().parents[2]
+    monkeypatch.chdir(tmp_path)
+    code = main([
+        "bf", "run",
+        "--config", str(repo / "configs" / "spheroid_brightfield.yaml"),
+        "--t0-dir", str(repo / "tests/fixtures/synthetic_dataset/Day0"),
+        "--t7-dir", str(repo / "tests/fixtures/synthetic_dataset/Day7"),
+        "--output-dir", str(tmp_path / "out"),
+        "--backend", "classical",
+        "--pixel-size", "1.518817",
+    ])
+    assert code == 0
+    assert list(tmp_path.iterdir()) == [tmp_path / "out"], "bf run must not write outside --output-dir"

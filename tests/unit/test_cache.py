@@ -6,6 +6,8 @@ import pytest
 from spheroid_pipeline_v2.config import SegmentationConfig
 from spheroid_pipeline_v2.mask_cache import MaskCache, compute_cache_key
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 # Non-algorithmic or path-only metadata fields that don't alter the mathematical segmentation output
 NON_ALGORITHMIC_FIELDS = {
@@ -33,8 +35,17 @@ def test_cache_miss_when_any_seg_param_changes(field_name):
     img = np.zeros((100, 100), dtype=np.uint8)
 
     orig_val = getattr(base_cfg, field_name)
+    # Enumerated fields must be mutated to another valid choice (the schema rejects unknown values)
+    enum_choices = {
+        "primary_backend": ("cpsam", "cpdino", "classical"),
+        "fallback_backend": ("cpsam", "cpdino", "classical"),
+        "last_resort_backend": ("cpsam", "cpdino", "classical"),
+        "fallback_policy": ("strict", "per_image"),
+    }
     # Mutate value based on type
-    if isinstance(orig_val, bool):
+    if field_name in enum_choices:
+        new_val = next(v for v in enum_choices[field_name] if v != orig_val)
+    elif isinstance(orig_val, bool):
         new_val = not orig_val
     elif isinstance(orig_val, int):
         new_val = orig_val + 5
@@ -117,7 +128,7 @@ def test_cache_records_original_backend(tmp_path):
 
 def test_if_baseline_shortcut_removed():
     """Verify that src/matrix_mat/if_density/sweep.py does not read 001_A_baseline/masks."""
-    sweep_file = Path("src/matrix_mat/if_density/sweep.py")
+    sweep_file = (REPO_ROOT / "src/matrix_mat/if_density/sweep.py")
     assert sweep_file.exists()
 
     content = sweep_file.read_text(encoding="utf-8")
@@ -125,3 +136,22 @@ def test_if_baseline_shortcut_removed():
         "src/matrix_mat/if_density/sweep.py still contains shortcut reading 001_A_baseline/masks!"
     )
 
+
+
+def test_cache_key_tracks_installed_package_version(monkeypatch):
+    """Cached masks from another release must not be reused (cached metadata semantics can change)."""
+    import matrix_mat
+
+    img = np.zeros((8, 8), dtype=np.uint8)
+    cfg = SegmentationConfig()
+    k_now = compute_cache_key(img, cfg)
+    monkeypatch.setattr(matrix_mat, "__version__", "999.0.0")
+    assert compute_cache_key(img, cfg) != k_now
+
+
+def test_package_version_matches_pyproject():
+    tomllib = pytest.importorskip("tomllib")  # Python >= 3.11
+    import matrix_mat
+
+    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+    assert matrix_mat.__version__ == pyproject["project"]["version"]

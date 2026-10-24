@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -84,8 +84,10 @@ def generate_cross_run_comparison(
             m_sub = s_df[s_df["material"] == mat] if not s_df.empty else pd.DataFrame()
             if not m_sub.empty:
                 rec = m_sub.iloc[0]
-                row[f"{r_name}_density_all"] = rec["mean_nuclei_density_all"]
-                row[f"{r_name}_density_clean"] = rec["mean_nuclei_density_clean"]
+                if "mean_nuclei_per_mm2_all" not in rec.index:
+                    raise ValueError(f"{r_name}: summary_by_material.csv lacks nuclei_per_mm2 columns; re-run with matrix-mat >= 0.2")
+                row[f"{r_name}_density_all"] = rec["mean_nuclei_per_mm2_all"]
+                row[f"{r_name}_density_clean"] = rec["mean_nuclei_per_mm2_clean"]
                 row[f"{r_name}_median_nuc_vol"] = rec["median_nuclear_volume_um3"]
                 row[f"{r_name}_flag_rate"] = rec["flagged_image_rate"]
             else:
@@ -116,11 +118,13 @@ def generate_cross_run_comparison(
             sub = p_df[p_df["image_id"] == img_id]
             if not sub.empty:
                 c = int(sub.iloc[0]["n_nuclei"])
-                d = float(sub.iloc[0]["nuclei_per_mm2"]) if ("nuclei_per_mm2" in sub.columns and pd.notna(sub.iloc[0]["nuclei_per_mm2"])) else float(sub.iloc[0].get("nuclei_density_per_mm3", 0.0))
+                if "nuclei_per_mm2" not in sub.columns:
+                    raise ValueError(f"{r_name}: " + "per-image table has no nuclei_per_mm2 column (pre-0.2 run with pseudo-volumetric density); re-run it before comparing")
+                d = float(sub.iloc[0]["nuclei_per_mm2"])
                 fl = str(sub.iloc[0]["flag_summary"])
             else:
                 c = 0
-                d = 0.0
+                d = float("nan")
                 fl = "missing"
 
             row[f"{r_name}_count"] = c

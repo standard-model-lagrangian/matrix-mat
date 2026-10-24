@@ -98,7 +98,10 @@ def generate_ablation_effects_csv(
         for _, r in merged.iterrows():
             fld = str(r["image_id"])
             p_stat = post_stats.get(fld, {})
-            r_dens = float(r.get("nuclei_per_mm2_feat", r.get("nuclei_per_mm2", r.get("nuclei_density_per_mm3_feat", r.get("nuclei_density_per_mm3", 0.0)))))
+            r_dens_raw = r.get("nuclei_per_mm2_feat", r.get("nuclei_per_mm2"))
+            if r_dens_raw is None:
+                raise ValueError(f"{slug}: " + "per-image table has no nuclei_per_mm2 column (pre-0.2 run with pseudo-volumetric density); re-run it before comparing")
+            r_dens = float(r_dens_raw)
             is_flagged = bool(r.get("flag_any", False))
 
             rows.append({
@@ -110,7 +113,6 @@ def generate_ablation_effects_csv(
                 "n_nuclei_raw": r.get("n_nuclei_raw", r.get("n_nuclei_total", r.get("n_nuclei_dedup", 0))),
                 "n_nuclei_final": r.get("n_nuclei", 0),
                 "nuclei_per_mm2": r_dens,
-                "nuclei_density_per_mm3": float(r.get("nuclei_density_per_mm3_feat", r.get("nuclei_density_per_mm3", 0.0))),
                 "density_mean_sd": f"{r_dens:.1f}",
                 "median_nuclear_volume_um3": r.get("median_nuclear_volume_um3", 0.0),
                 "flag_any": is_flagged,
@@ -132,9 +134,8 @@ def generate_ablation_effects_csv(
         base_df = pd.DataFrame(rows)
         summary_rows = []
         for (scope, slug, mat), grp in base_df.groupby(["scope", "combo_slug", "material"], sort=False):
-            dens_col = "nuclei_per_mm2" if "nuclei_per_mm2" in grp.columns else "nuclei_density_per_mm3"
-            mean_dens = float(grp[dens_col].mean())
-            std_dens = float(grp[dens_col].std(ddof=1)) if len(grp) > 1 else 0.0
+            mean_dens = float(grp["nuclei_per_mm2"].mean())
+            std_dens = float(grp["nuclei_per_mm2"].std(ddof=1)) if len(grp) > 1 else float("nan")
             mean_final = float(grp["n_nuclei_final"].mean())
             mean_raw = float(grp["n_nuclei_raw"].mean())
             mean_vol = float(grp["median_nuclear_volume_um3"].mean())
@@ -149,7 +150,6 @@ def generate_ablation_effects_csv(
                 "n_nuclei_raw": round(mean_raw, 1),
                 "n_nuclei_final": round(mean_final, 1),
                 "nuclei_per_mm2": round(mean_dens, 2),
-                "nuclei_density_per_mm3": round(float(grp["nuclei_density_per_mm3"].mean()), 2) if "nuclei_density_per_mm3" in grp.columns else 0.0,
                 "density_mean_sd": f"{mean_dens:.1f} ± {std_dens:.1f}",
                 "median_nuclear_volume_um3": round(mean_vol, 2),
                 "flag_any": bool(grp["flag_any"].any()),
@@ -180,8 +180,8 @@ def generate_ablation_effects_csv(
         for (scope, mat), grp_m in base_df.groupby(["scope", "material"]):
             row_dict = {"scope": scope, "material": mat, "n_images": len(grp_m["image_id"].unique())}
             for slug, grp_s in grp_m.groupby("combo_slug"):
-                m_d = float(grp_s["nuclei_density_per_mm3"].mean())
-                s_d = float(grp_s["nuclei_density_per_mm3"].std(ddof=1)) if len(grp_s) > 1 else 0.0
+                m_d = float(grp_s["nuclei_per_mm2"].mean())
+                s_d = float(grp_s["nuclei_per_mm2"].std(ddof=1)) if len(grp_s) > 1 else float("nan")
                 row_dict[f"{slug}_density_mean_sd"] = f"{m_d:.1f} ± {s_d:.1f}"
                 row_dict[f"{slug}_mean_count"] = round(float(grp_s["n_nuclei_final"].mean()), 1)
             mat_table.append(row_dict)
@@ -218,6 +218,9 @@ def generate_robustness_vs_original_csv(
     if not orig_dfs or not pp_dfs:
         logger.warning("Missing original or robustness runs for comparison.")
         return pd.DataFrame()
+    for r, d in {**orig_dfs, **pp_dfs}.items():
+        if "nuclei_per_mm2" not in d.columns:
+            raise ValueError(f"{r}: " + "per-image table has no nuclei_per_mm2 column (pre-0.2 run with pseudo-volumetric density); re-run it before comparing")
 
     common_images = sorted(list(set.intersection(*[set(d.index) for d in orig_dfs.values()])))
     image_rows = []
@@ -225,18 +228,10 @@ def generate_robustness_vs_original_csv(
     for img_id in common_images:
         mat = orig_dfs[orig_runs[0]].loc[img_id, "material"]
         orig_counts = [orig_dfs[r].loc[img_id, "n_nuclei"] for r in orig_runs if img_id in orig_dfs[r].index]
-        orig_dens = [
-            orig_dfs[r].loc[img_id, "nuclei_per_mm2"] if "nuclei_per_mm2" in orig_dfs[r].columns
-            else orig_dfs[r].loc[img_id, "nuclei_density_per_mm3"]
-            for r in orig_runs if img_id in orig_dfs[r].index
-        ]
+        orig_dens = [orig_dfs[r].loc[img_id, "nuclei_per_mm2"] for r in orig_runs if img_id in orig_dfs[r].index]
 
         pp_counts = [pp_dfs[r].loc[img_id, "n_nuclei"] for r in pp_runs if img_id in pp_dfs[r].index]
-        pp_dens = [
-            pp_dfs[r].loc[img_id, "nuclei_per_mm2"] if "nuclei_per_mm2" in pp_dfs[r].columns
-            else pp_dfs[r].loc[img_id, "nuclei_density_per_mm3"]
-            for r in pp_runs if img_id in pp_dfs[r].index
-        ]
+        pp_dens = [pp_dfs[r].loc[img_id, "nuclei_per_mm2"] for r in pp_runs if img_id in pp_dfs[r].index]
 
         orig_c_spread = compute_cv_spread(orig_counts)
         orig_d_spread = compute_cv_spread(orig_dens)
@@ -412,6 +407,18 @@ def generate_effect_summary_md(
     """Write effect_summary.md detailing main effects, interactions, failure mode resolutions, and verdict."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
+    required = {"scope", "image_id", "combo_slug"}
+    if ablation_df is None or ablation_df.empty or not required.issubset(ablation_df.columns):
+        output_path.write_text(
+            "# Pre/Post-Processing Effect Summary\n\n"
+            "No PP00/PP10/PP01/PP11 ablation runs were found in this runs directory, so no main effects "
+            "or interactions can be estimated. Run `configs/prepost_ablation.yaml` into the same runs "
+            "directory to populate this report.\n",
+            encoding="utf-8",
+        )
+        logger.warning(f"No ablation runs found; wrote placeholder effect summary to {output_path}")
+        return
+
     # Filter to image-level rows for full scope
     full_df = ablation_df[
         (ablation_df["scope"] == "full") & (~ablation_df["image_id"].astype(str).str.startswith("SUMMARY_"))
@@ -467,18 +474,31 @@ def generate_effect_summary_md(
             orig_mean_spread = float(all_cohort_row.iloc[0]["orig_mean_count_spread"])
             pp_mean_spread = float(all_cohort_row.iloc[0]["pp_mean_count_spread"])
         else:
-            c_red_mean, c_red_max, orig_mean_spread, pp_mean_spread = 0.0, 0.0, 0.0, 0.0
+            c_red_mean = c_red_max = orig_mean_spread = pp_mean_spread = float("nan")
     else:
-        c_red_mean, c_red_max, orig_mean_spread, pp_mean_spread = 0.0, 0.0, 0.0, 0.0
+        c_red_mean = c_red_max = orig_mean_spread = pp_mean_spread = float("nan")
+    robustness_evaluated = not np.isnan(c_red_mean)
+    n_fields = int(full_df["image_id"].nunique()) if not full_df.empty else 0
+
+    if robustness_evaluated:
+        robustness_summary = [
+            f"- **Robustness**: mean cross-parameter count spread changed from **{orig_mean_spread:.1f}** to "
+            f"**{pp_mean_spread:.1f}** ({c_red_mean:+.1f}% reduction; max {c_red_max:+.1f}%).",
+        ]
+    else:
+        robustness_summary = [
+            "- **Robustness**: not evaluated (original 001–004 and robustness 201–204 runs were not both found "
+            "in this runs directory).",
+        ]
 
     lines = [
-        "# Pre/Post-Processing Pipeline Evaluation & Robustness Verdict",
+        "# Pre/Post-Processing Ablation Comparison",
         "",
         "## Executive Summary",
-        f"This report evaluates the **2×2 factorial pre/post-processing module ablation** and subsequent **robustness regression test** across 27 single-plane IF fields of view (SKOV3 spheroids, day 7).",
+        f"Computed comparison of the 2×2 pre/post-processing ablation across {n_fields} fields. "
+        "All numbers below are calculated from the run outputs; interpretation is left to `docs/findings/`.",
         "",
-        f"- **Summary**: Across the full cohort, pre/post-processing cross-parameter count spread changed from an average of **{orig_mean_spread:.1f}** to **{pp_mean_spread:.1f}** (**{c_red_mean:.1f}% change**; max spread change: **{c_red_max:.1f}%**).",
-        f"- **Sensitivity**: Cross-parameter sensitivity was {'reduced' if c_red_mean > 0 else 'unaltered'} across evaluated Cellpose-SAM configurations under `PP11_full`.",
+        *robustness_summary,
         "",
         "---",
         "",
@@ -507,9 +527,6 @@ def generate_effect_summary_md(
         f"  - Delta Overall Flag Rate: **{flg10 - flg00:+.1f}%** (from {flg00:.1f}% to {flg10:.1f}%)",
         f"  - `debris_or_merged` Flagged Images: **{deb00} -> {deb10}** ({deb10 - deb00:+d})",
         f"  - `low_snr` Flagged Images: **{low00} -> {low10}** ({low10 - low00:+d})",
-        "- **Autofluorescence Suppression**: Rolling-ball background subtraction effectively purges diffuse matrix haze and low-frequency fluorescence gradients in hydrogels (S50, S43D20).",
-        "- **Dynamic Range Normalization**: Percentile clipping ([1.0%, 99.8%]) anchors signal contrast across fields with fluctuating laser power, stabilizing flow gradient estimation.",
-        f"- **Limitation When Run Alone**: Preprocessing alone sharpens clump borders but does not segment overlapping nuclei; without size gating, small contrast-boosted debris can slightly alter `debris_or_merged` counts ({deb10 - deb00:+d} flags) if not post-filtered.",
         "",
         "### Main Effect of Post-Processing (Size Gate + Splitting + Border Exclusion)",
         f"- **Quantitative Deltas (`PP01` vs `PP00`)**:",
@@ -517,10 +534,8 @@ def generate_effect_summary_md(
         f"  - Delta Overall Flag Rate: **{flg01 - flg00:+.1f}%** (from {flg00:.1f}% down to {flg01:.1f}%)",
         f"  - `debris_or_merged` Flagged Images: **{deb00} -> {deb01}** ({deb01 - deb00:+d}, {deb01_pct:.0f}% change)",
         f"  - `low_snr` Flagged Images: **{low00} -> {low01}** ({low01 - low00:+d})",
-        "- **Size Gating**: Enforcing the calibrated physical size gate purges remaining camera noise and non-nuclear specks.",
-        "- **Seeded Watershed Splitting**: In dense spheroid cores where optical overlap caused Cellpose clumping, intensity h-maxima seeded watershed selectively partitions merged masks (>2.0× image median) whenever child fragments satisfy physical volume constraints.",
-        "- **Border Exclusion**: Perimeter objects within one nuclear radius (`clearance_um = 5.85 um`) are retained in label masks for visual inspection but excluded from density calculations (`excluded_border=true`), neutralizing field-edge truncation bias.",
-        "- **Limitation When Run Alone**: Post-processing resolves clump morphology but cannot remove non-uniform background haze; fields with severe background gradients retain optical bias without preprocessing.",
+        "  - Note: the size gate removes the very objects that raise `debris_or_merged`, so its drop under "
+        "post-processing is expected by construction and is not evidence of better segmentation.",
         "",
         "### Interaction Effect (`PP11_full`)",
         f"- **Quantitative Deltas (`PP11` vs `PP00`)**:",
@@ -528,8 +543,8 @@ def generate_effect_summary_md(
         f"  - Delta Overall Flag Rate: **{flg11 - flg00:+.1f}%** (from {flg00:.1f}% down to {flg11:.1f}%, a **{flg00 - flg11:.1f}% absolute reduction**)",
         f"  - `debris_or_merged` Flagged Images: **{deb00} -> {deb11}** ({deb11 - deb00:+d}, {deb11_pct:.0f}% change)",
         f"  - `low_snr` Flagged Images: **{low00} -> {low11}**",
-        "- The combination of preprocessing and post-processing provides synergistic stability: preprocessing cleans the gradient field so seeded watershed operates on authentic nuclear peaks rather than background noise.",
-        "- Segmentation rate: Checked for empty segmentation across cohort fields.",
+        f"  - Interaction (count): **{(c11 - c01) - (c10 - c00):+.1f}** nuclei/field "
+        "(effect of preprocessing with post-processing on, minus without)",
         "",
         "---",
         "",
@@ -556,9 +571,7 @@ def generate_effect_summary_md(
                 f"| {bold}`{mat}`{bold} | {n_img} | {o_c:.1f} | {p_c:.1f} | {bold}{c_red:.1f}%{bold} | {o_d:.1f} | {p_d:.1f} | {bold}{d_red:.1f}%{bold} |"
             )
     else:
-        lines.append("| *(Pending)* | - | - | - | - | - | - | - |")
-        lines.append("")
-        lines.append("*Robustness runs (runs/201_... to 204_...) have not been executed yet; table will populate once Phase 4 is complete.*")
+        lines.append("| *(not evaluated)* | - | - | - | - | - | - | - |")
 
     lines.extend([
         "",
@@ -574,18 +587,10 @@ def generate_effect_summary_md(
         "",
         "---",
         "",
-        "## 4. Verdict & Recommendations",
+        "## 4. Recommendation",
         "",
-        "### Recommended Default Configuration",
-        "Adopt **`PP11_full`** as the permanent production pipeline stack:",
-        "- **Preprocessing**: Rolling-ball background subtraction (radius = 3.5× expected nuclear diameter ≈ 41 µm) + Percentile normalization [1.0%, 99.8%] to float32 [0, 1].",
-        "- **CPSAM Model**: Parameters frozen at `A_baseline` (`flow_threshold=0.4`, `cellprob_threshold=0.0`, `diameter=null`, `min_size=15`).",
-        "- **Post-processing**: Deduplication (IoU > 0.50) + Physical size gate + Seeded watershed clump splitting (`split_factor=2.0`, `h_maxima=10.0`) + Edge clearance exclusion (`5.85 um`).",
-        "- **QC Flags**: Primary cohort outlier detection based on `density_outlier` (skipping materials with n < 3).",
-        "",
-        "### Residual Failure Modes & Acquisition-Level Recommendations",
-        "- **Optical Quality Inspection**: Fields with low Laplacian variance trigger blur flags reflecting low high-frequency content at acquisition plane.",
-        "- **Unpaired Field**: `SKOV3 Spheroid D7 Mor_S43D20-Gel1-1-2` missing nuclear channel ch00 is appropriately skipped via `--allow-unpaired`.",
+        "Not generated automatically. Choosing a production configuration is an author decision; record it, "
+        "with the numbers above, in `docs/findings/IF_PREPOST_FINDINGS.md`.",
     ])
 
     with open(output_path, "w", encoding="utf-8") as f:

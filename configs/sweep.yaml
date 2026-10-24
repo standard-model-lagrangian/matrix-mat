@@ -1,6 +1,6 @@
 # Master Configuration for Multi-Run Spheroid IF Segmentation Sweep
 data_dir: "${DATA_ROOT}/if"
-runs_dir: "runs"
+runs_dir: "${OUTPUT_ROOT}/runs"
 allow_unpaired: true
 overwrite: false
 random_seed: 42
@@ -8,7 +8,7 @@ default_pixel_size_um: 0.5050492474122553
 
 # Cellpose-SAM model settings
 model:
-  pretrained_model: "models/cpsam_v2"
+  pretrained_model: "${MODELS_ROOT}/cpsam_v2"
   model_type: "cpsam"
   use_gpu: true
 
@@ -62,7 +62,11 @@ qc:
   border_margin_px: 5
   edge_heavy_fraction: 0.25
   saturation_fraction_max: 0.005
-  blur_percentile_cutoff: 10.0 # lowest 10% Laplacian variance in cohort flagged blurry
+  # Blur flag on the RAW nuclear channel: Laplacian variance below an absolute threshold.
+  # 150 is provisional: on the 27 SKOV3 fields raw values span 133-481 and only Mat-Gel1-3 (133)
+  # falls below it. Confirm by visual review before relying on it.
+  blur_mode: "absolute"
+  blur_abs_threshold: 150.0
   duplicate_iou_threshold: 0.50
   outlier_iqr_factor: 1.5
 

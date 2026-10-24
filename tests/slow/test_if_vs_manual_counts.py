@@ -6,6 +6,9 @@ from scipy import stats
 from spheroid_if_sweep.postprocess import postprocess_field_masks
 
 
+PROVENANCE_COLUMNS = ("counted_by", "count_date", "count_method")
+
+
 @pytest.mark.slow
 @pytest.mark.realdata
 def test_if_pipeline_counts_vs_manual():
@@ -18,9 +21,17 @@ def test_if_pipeline_counts_vs_manual():
     csv_path = Path(__file__).parent.parent / "data" / "if_manual_counts.csv"
     assert csv_path.exists(), f"Manual counts file not found at {csv_path}"
     df_manual = pd.read_csv(csv_path)
+    # Validation is only meaningful against independent human counts. Until each row records who
+    # counted it, when and how (blind to pipeline output), the comparison cannot be trusted.
+    missing = [c for c in PROVENANCE_COLUMNS if c not in df_manual.columns or df_manual[c].isna().any()]
+    if missing:
+        pytest.skip(
+            f"Manual counts lack provenance columns {missing}; see tests/data/README.md. "
+            "Not used as validation evidence until recorded."
+        )
 
     # Check if run output per_image_deltas.csv exists in runs/comparison
-    deltas_path = Path("runs/comparison/per_image_deltas.csv")
+    deltas_path = Path(__file__).resolve().parents[2] / "runs" / "comparison" / "per_image_deltas.csv"
     if not deltas_path.exists():
         pytest.skip("Precomputed run comparison not found. Run IF sweep first to test against real data.")
 

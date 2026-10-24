@@ -7,7 +7,8 @@ This document records every assumption, underspecified detail, and design decisi
 ## Checkpoint Status (Completed: 2026-10-24)
 
 ### Executive Progress Summary
-- **Total Test Suite:** 100% passing across all unit, integration, regression, and slow suites.
+- **Correction (2026-10-24, v0.2.1):** the "100% complete / 100% passing" status below was not accurate. All tests passed, but an independent verification found the shipped IF configs crashed, missing weights produced empty "successful" runs, several fixes were partial, and some tests did not check what they claimed. See `CHANGELOG.md` [0.2.1] and Entries 022–026. The phase list below is kept for history.
+- **Total Test Suite (as originally recorded):** 100% passing across all unit, integration, regression, and slow suites.
 - **Phases Covered:**
   - **Phase 0 (WS0.1 – WS0.4):** 100% complete. Single pytest harness with session temp isolation, deleted custom runner, removed tautological tier tests, added meta-tests and ground truth checks.
   - **Phase 1 (WS1.1 – WS1.7):** 100% complete.
@@ -123,3 +124,23 @@ This document records every assumption, underspecified detail, and design decisi
 - **Context:** Monolithic `run_sweep` was >400 lines long. `postprocess_field_masks` fell back to a hardcoded baseline cohort median (841.04 $\mu\text{m}^3$) when no reference was configured, introducing circular coupling. Unifying `provenance.py` introduced keyword argument incompatibilities (`run_dir` vs `output_dir`) and omitted `get_cellpose_version()`, which caused runtime `TypeError` in `test_if_golden.py` and `test_if_sweep.py`.
 - **Decision / Assumption:** Decomposed `run_sweep` in `src/matrix_mat/if_density/sweep.py` into focused functions $\le$ 80 lines (`discover_inputs`, `segment_field`, `apply_qc`, `extract_features`, `compute_stats`, `render_reports`, `_write_combo_provenance`, `run_single_combo`, `run_sweep`). Updated `postprocess_field_masks` to dynamically compute the median nuclear volume of segmented masks when explicit reference parameters are absent. Updated `matrix_mat.core.provenance.write_run_metadata` to accept both `output_dir` and `run_dir`, populated top-level and nested provenance keys, and re-exported `get_cellpose_version()` from `matrix_mat.if_density.provenance`.
 
+
+### Entry 022: Verification of v0.2.0 (2026-10-24)
+- **Context:** Each workstream was re-checked against the code and run on the full real brightfield dataset (285 images).
+- **Decision:** Fixes listed in `CHANGELOG.md` [0.2.1]. Each began as a failing test.
+
+### Entry 023: IF reference nuclear volume and blur threshold (WS1.4, WS1.6)
+- **Context:** No independent reference volume or focus threshold exists for this dataset.
+- **Decision / Assumption:** Configs carry `reference_vol_um3: 841.04` (median of the 001_A_baseline run on this dataset) and `blur_abs_threshold: 150` (raw Laplacian variance; values span 133–481 across the 27 fields, and only Mat-Gel1-3 falls below it). Both are marked **provisional and data-derived** in the YAML and must be replaced by independent references before publication. The pipeline no longer derives either value from the images it is judging.
+
+### Entry 024: Manual counts provenance (WS1.6)
+- **Context:** `tests/data/if_manual_counts.csv` matches the PP11 pipeline counts to within 0–4 nuclei (exactly for 2 of 5 fields), and nothing records who counted, when, or how.
+- **Decision:** The validation test skips until `counted_by`, `count_date` and `count_method` are filled in. The R² > 0.94 claim was removed from `docs/VALIDATION.md`. **Open question for the data owner.**
+
+### Entry 025: Gel-level power (WS1.1)
+- **Context:** The real data has 3–4 gels per condition and 2–13 PASS pairs per condition.
+- **Decision:** No method change. The README states that the smallest attainable gel-level p-value (≈0.03–0.17), combined with Holm correction across five materials, means no comparison can reach 0.05. Effect sizes and CIs are the primary readout.
+
+### Entry 026: Version-keyed mask cache
+- **Context:** The cache key used a hard-coded `"0.1.0"`, so masks and metadata cached by older code were reused after semantic changes (e.g. SEG_FAIL flags now stored in the cache).
+- **Decision:** The key uses `matrix_mat.__version__`, bumped to 0.2.1. A test asserts it matches `pyproject.toml`.

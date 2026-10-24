@@ -219,11 +219,12 @@ class CellposeSAMSegmenter(BaseSegmenter):
 
     def _init_model(self) -> Any:
         if self._model is None:
-            from cellpose import models
             from pathlib import Path
             model_path_str = getattr(self.config, "cpsam_model_path", "models/cpsam_v2")
             local_model = Path(model_path_str).resolve()
+            # Verify pinned weights before touching cellpose so a missing/mismatched file aborts the run.
             self.model_sha256 = verify_model_weights(local_model, model_name="cpsam_v2")
+            from cellpose import models
             models.MODEL_DIR = local_model.parent
             self._model = models.CellposeModel(
                 pretrained_model=str(local_model),
@@ -233,8 +234,10 @@ class CellposeSAMSegmenter(BaseSegmenter):
 
     def segment(self, image: np.ndarray, pixel_size_um: float = 1.518817) -> Tuple[np.ndarray, Dict[str, Any]]:
         h, w = image.shape[:2]
+        # Model initialisation failures (missing weights, checksum mismatch, missing cellpose)
+        # are run-level errors and must propagate; only per-image inference errors are caught.
+        model = self._init_model()
         try:
-            model = self._init_model()
             # Ensure uint8 [0, 255] for Cellpose
             if image.dtype != np.uint8:
                 img_u8 = np.clip(image * 255.0, 0, 255).astype(np.uint8)
@@ -300,8 +303,9 @@ class CellposeFoundationSegmenter(BaseSegmenter):
 
     def segment(self, image: np.ndarray, pixel_size_um: float = 1.518817) -> Tuple[np.ndarray, Dict[str, Any]]:
         h, w = image.shape[:2]
+        # Model initialisation failures are run-level errors; see CellposeSAMSegmenter.segment.
+        model = self._init_model()
         try:
-            model = self._init_model()
             if image.dtype != np.uint8:
                 img_u8 = np.clip(image * 255.0, 0, 255).astype(np.uint8)
             else:
@@ -362,7 +366,9 @@ class CellposeFoundationSegmenter(BaseSegmenter):
 
 
 # Backwards compatibility alias
-CellposeCyto3Segmenter = CellposeFoundationSegmenter
+CellposeCyto3Segmenter = CellposeFoundationSegmenter  # Deprecated name; the model is cpdino, not cyto3.
+
+SUPPORTED_BACKENDS = ("cpsam", "cpdino", "classical")
 
 
 class SegmentationHierarchy:
@@ -437,7 +443,12 @@ class SegmentationHierarchy:
         raw_h, raw_w = image.shape[:2]
         should_force = force_recompute if force_recompute is not None else self.config.force_recompute
         active_backend = self.config.primary_backend
+        if active_backend not in SUPPORTED_BACKENDS:
+            raise ValueError(f"Unknown segmentation backend {active_backend!r}; expected one of {SUPPORTED_BACKENDS}")
         if active_backend == "cpsam":
+            if isinstance(self.cpsam_segmenter, CellposeSAMSegmenter):
+                # Loads and checksums the pinned weights once per run; raises if they are missing.
+                self.cpsam_segmenter._init_model()
             model_ident = getattr(self.cpsam_segmenter, "model_sha256", None) or getattr(self.config, "cpsam_model_path", "cpsam_v2")
         elif active_backend == "cpdino":
             model_ident = "cpdino"
@@ -452,7 +463,7 @@ class SegmentationHierarchy:
                 n_objs = int(np.max(cached_mask))
                 cached_meta = self.mask_cache.load_meta(cache_key)
                 logger.debug(f"Cache hit for {image_id}: {n_objs} objects loaded from disk")
-                return cached_mask, {
+                hit_meta = {
                     "backend": cached_meta.get("backend", active_backend),
                     "model_id": cached_meta.get("model_id", active_backend),
                     "diameter_used": cached_meta.get("diameter_used", self.config.cpsam_expected_diameter_px),
@@ -460,6 +471,11 @@ class SegmentationHierarchy:
                     "objects_found": n_objs,
                     "image_id": image_id,
                 }
+                # Segmentation QC outcome is part of the cached result, so re-runs flag the same images.
+                for k in ("plausibility_status", "qc_flag", "qc_reasons"):
+                    if cached_meta.get(k) is not None:
+                        hit_meta[k] = cached_meta[k]
+                return cached_mask, hit_meta
 
         # 2. Preprocess & downsample
         downsampled_img, scale_factor, prep_meta = self.preprocessor.process(
@@ -478,6 +494,23 @@ class SegmentationHierarchy:
             mask_t1, meta_t1 = self.cyto3_segmenter.segment(downsampled_img, effective_pixel_size)
         else:
             mask_t1, meta_t1 = self.cpsam_segmenter.segment(downsampled_img, effective_pixel_size)
+
+        if meta_t1.get("status") == "failed":
+            # Per-image inference error: flag the image and never cache the empty placeholder mask.
+            reason = f"inference error: {meta_t1.get('error', 'unknown')}"
+            meta_t1 = {**meta_t1, "plausibility_status": "FAIL", "qc_flag": "SEG_FAIL", "qc_reasons": f"SEG_FAIL: {reason}"}
+            full_res_mask = np.zeros((raw_h, raw_w), dtype=np.int32)
+            self.decisions_logger.log(
+                image_id=image_id,
+                stage="Segmentation Hierarchy Result",
+                trigger_event="Inference error",
+                action_taken=f"Image flagged SEG_FAIL with `{active_backend}` backend",
+                outcome=f"FAILED: {reason}",
+                backend_attempted=active_backend,
+                details={"pixel_size_um": pixel_size_um},
+            )
+            return full_res_mask, {**prep_meta, **meta_t1, "backend": active_backend, "final_backend": active_backend,
+                                   "objects_found": 0, "image_id": image_id, "cached": False}
 
         is_valid, reason = self._check_plausibility(mask_t1)
         if is_valid:
@@ -530,6 +563,9 @@ class SegmentationHierarchy:
                 "diameter_used": selected_meta.get("diameter_used", self.config.cpsam_expected_diameter_px),
                 "image_id": image_id,
                 "cache_key": cache_key,
+                "plausibility_status": selected_meta.get("plausibility_status"),
+                "qc_flag": selected_meta.get("qc_flag"),
+                "qc_reasons": selected_meta.get("qc_reasons"),
             }
             self.mask_cache.save(cache_key, full_res_mask, metadata=cache_meta)
         except Exception as e:

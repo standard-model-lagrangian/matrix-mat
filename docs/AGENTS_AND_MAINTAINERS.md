@@ -6,7 +6,7 @@ This document provides a comprehensive technical reference for software engineer
 
 ## 1. System Architecture & Design Principles
 
-The workspace implements two decoupled, highly deterministic scientific image analysis pipelines:
+The workspace implements two decoupled, seeded and provenance-tracked scientific image analysis pipelines:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -33,7 +33,7 @@ The workspace implements two decoupled, highly deterministic scientific image an
 
 ### Core Tenets:
 1. **Zero Silent Drops**: No candidate instance is ever discarded silently. Every single detected object is assigned a status (`PASS`, `REVIEW`, `FAIL`) and recorded in `objects.csv` alongside its geometric metrics and rejection rationale (`qc_reasons`).
-2. **Deterministic Reproducibility**: Given the same input images and configuration, the pipeline must produce bit-for-bit identical segmentation masks and floating-point statistical outputs. All stochastic processes (bootstrap resampling, permutation tests) bind to `config.random_seed`.
+2. **Reproducibility**: With the classical backend on CPU, identical inputs and configuration give bit-for-bit identical outputs. cpsam inference on GPU/MPS is reproducible within a small tolerance (identical counts, area within 0.5%), not bitwise. All stochastic steps (bootstrap, permutation tests) use `config.random_seed`.
 3. **Lossless Disk Caching**: Deep learning model evaluations are saved to disk as lossless 16-bit PNG masks (`masks/<image_id>.png`). Subsequent runs read directly from cache unless `--no-cache` or `force_recompute` is explicitly set.
 4. **Hardware Portability**: Full support for Apple Silicon MPS (`torch.backends.mps`), NVIDIA CUDA (`torch.cuda`), and automated CPU fallback without platform-specific code branching.
 
@@ -52,10 +52,9 @@ Raw TIFF (1536x2048, EVOS Tag 37510)
   ├──► [Preprocessor] ──► Flattened, normalized, scale-factor downsampled float32 image
   │
   ├──► [SegmentationHierarchy]
-  │      ├─ Tier 1: Cellpose-SAM (cpsam_v2 model, diameter=160px)
-  │      ├─ Tier 2: Cellpose cyto3 (diameter sweep fallback)
-  │      └─ Tier 3: Classical Multi-Scale Watershed + Hough Circle Fallback
-  │      └──► Caches 16-bit PNG mask to masks/<image_id>.png
+  │      ├─ One backend per run (fallback_policy: strict): cpsam (default, cpsam_v2) | cpdino | classical
+  │      ├─ Empty / implausible / failed image → flagged SEG_FAIL, never re-segmented with another method
+  │      └──► Content-addressed 16-bit PNG cache in ${CACHE_ROOT} (image bytes + params + model hash + version)
   │
   ├──► [QC Filter & Measure]
   │      ├─ Resolves overlapping mask instances
@@ -116,7 +115,7 @@ class SpheroidObjectRecord:
     contrast_ratio: float            # 1.0 - (I_int / I_ring)
     qc_flag: str                     # 'PASS', 'REVIEW', or 'FAIL'
     qc_reasons: str                  # Semicolon-delimited rejection explanations
-    mask_source: str                 # 'cpsam', 'cyto3', 'classical', or 'manual_review'
+    mask_source: str                 # 'automated' or 'manual_review'; backend is in seg_backend ('cpsam' | 'cpdino' | 'classical')
 ```
 
 #### `SpheroidPairRecord` (`pair.py`)
