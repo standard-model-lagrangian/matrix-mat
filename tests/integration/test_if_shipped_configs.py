@@ -78,3 +78,15 @@ def test_run_metadata_reflects_steps_that_actually_ran(config_name, tmp_path, mo
         meta = json.loads((tmp_path / "runs" / slug / "run_metadata.json").read_text())
         assert meta["preprocessing"]["enabled"] == ran["pre"], slug
         assert meta["postprocessing"]["enabled"] == ran["post"], slug
+
+
+def test_run_sweep_overrides_and_sample(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg_path = _materialise("prepost_ablation.yaml", tmp_path)
+    out = tmp_path / "elsewhere"
+    run_sweep(config_path=cfg_path, engine=StubIFEngine(), runs_dir_override=str(out),
+              data_dir_override=str(FIXTURE), sample_n=1)
+    import pandas as pd
+    per_image = pd.read_csv(out / "101_PP00_none_none" / "features" / "per_image.csv")
+    assert len(per_image) == 1
+    assert not (tmp_path / "runs").exists()

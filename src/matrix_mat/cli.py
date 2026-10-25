@@ -14,7 +14,12 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
-from matrix_mat.core.paths import resolve_data_root, resolve_output_root
+from matrix_mat.core.paths import resolve_data_root, resolve_models_root, resolve_output_root
+
+
+def resolve_runs_dir(cli_val: Optional[str]) -> Path:
+    """IF runs live under ${OUTPUT_ROOT}/runs unless a directory is given explicitly."""
+    return Path(cli_val) if cli_val else resolve_output_root() / "runs"
 
 logger = logging.getLogger("matrix_mat.cli")
 
@@ -75,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     # bf plots
     bf_plots = bf_sub.add_parser("plots", help="Generate all presentation figures (Figs 1-6) and growth tables from CSVs.")
     bf_plots.add_argument("-c", "--config", type=str, default="configs/spheroid_brightfield.yaml", help="Path to YAML config.")
-    bf_plots.add_argument("-o", "--out", "--output-dir", dest="output_dir", type=str, default="output", help="Directory containing objects.csv and pairs.csv.")
+    bf_plots.add_argument("-o", "--out", "--output-dir", dest="output_dir", type=str, default=None, help="Directory containing objects.csv and pairs.csv (default: ${OUTPUT_ROOT}).")
     bf_plots.add_argument("--input-dir", type=str, help="Alias for directory containing objects.csv and pairs.csv.")
 
     # =========================================================================
@@ -88,13 +93,13 @@ def build_parser() -> argparse.ArgumentParser:
     if_preflight = if_sub.add_parser("preflight", help="Proactive audit for channel pairing and GPU acceleration.")
     if_preflight.add_argument("-c", "--config", type=str, default="configs/sweep.yaml", help="Path to sweep YAML config.")
     if_preflight.add_argument("--data-dir", "--input-dir", dest="data_dir", type=str, default=None, help="Directory containing IF microscopy images.")
-    if_preflight.add_argument("--model-path", type=str, default="models/cpsam_v2", help="Path to model weights file.")
+    if_preflight.add_argument("--model-path", type=str, default=None, help="Model weights file (default: from the config).")
     if_preflight.add_argument("--allow-unpaired", action="store_true", help="Allow unpaired files without error.")
 
     # if sweep
     if_sweep = if_sub.add_parser("sweep", help="Execute multi-run hyperparameter sweep or pre/post ablation.")
     if_sweep.add_argument("-c", "--config", type=str, default="configs/sweep.yaml", help="Path to sweep YAML config.")
-    if_sweep.add_argument("-o", "--out", "--output-dir", "--runs-dir", dest="runs_dir", type=str, default="runs", help="Output directory for runs.")
+    if_sweep.add_argument("-o", "--out", "--output-dir", "--runs-dir", dest="runs_dir", type=str, default=None, help="Output directory for runs (default: runs_dir from the YAML).")
     if_sweep.add_argument("--data-dir", "--input-dir", dest="data_dir", type=str, default=None, help="Input directory containing IF images.")
     if_sweep.add_argument("--scope", type=str, choices=["subset", "full"], default="full", help="Evaluation scope.")
     if_sweep.add_argument("--allow-unpaired", action="store_true", help="Allow unpaired channel files.")
@@ -103,20 +108,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     # if compare
     if_compare = if_sub.add_parser("compare", help="Compare completed runs across hyperparameter sweep.")
-    if_compare.add_argument("--runs", "--runs-dir", dest="runs_dir", type=str, default="runs", help="Path to runs directory.")
+    if_compare.add_argument("--runs", "--runs-dir", dest="runs_dir", type=str, default=None, help="Path to runs directory (default: ${OUTPUT_ROOT}/runs).")
     if_compare.add_argument("-o", "--output", "--output-dir", dest="output_dir", type=str, default=None, help="Output directory for comparison.")
     if_compare.add_argument("-c", "--config", type=str, default=None, help="Path to config YAML.")
 
     # if compare-prepost
     if_comp_pp = if_sub.add_parser("compare-prepost", help="Compare pre/post ablation and robustness runs.")
-    if_comp_pp.add_argument("--runs", "--runs-dir", dest="runs_dir", type=str, default="runs", help="Path to runs directory.")
+    if_comp_pp.add_argument("--runs", "--runs-dir", dest="runs_dir", type=str, default=None, help="Path to runs directory (default: ${OUTPUT_ROOT}/runs).")
     if_comp_pp.add_argument("-o", "--output", "--output-dir", dest="output_dir", type=str, default=None, help="Output directory for comparison.")
     if_comp_pp.add_argument("-c", "--config", type=str, default=None, help="Path to config YAML.")
     if_comp_pp.add_argument("--biological", action="store_true", help="Also generate biological figures.")
 
     # if compare-biological
     if_comp_bio = if_sub.add_parser("compare-biological", help="Generate biological comparison figures across hydrogels.")
-    if_comp_bio.add_argument("--run-dir", type=str, default="runs/104_PP11_full", help="Path to specific run directory.")
+    if_comp_bio.add_argument("--run-dir", type=str, default=None, help="Run directory (default: ${OUTPUT_ROOT}/runs/104_PP11_full).")
     if_comp_bio.add_argument("-o", "--output", "--output-dir", dest="output_dir", type=str, default=None, help="Output directory for figures.")
     if_comp_bio.add_argument("-c", "--config", type=str, default=None, help="Path to config YAML.")
 
@@ -235,7 +240,7 @@ def handle_bf_plots(args: argparse.Namespace) -> int:
     from matrix_mat.reporting.presentation_plots import generate_all_presentation_figures
     from matrix_mat.reporting.visualize import generate_all_figures
 
-    out_dir_str = args.input_dir or args.output_dir
+    out_dir_str = args.input_dir or args.output_dir or str(resolve_output_root())
     out_p = Path(out_dir_str)
     objs_p = out_p / "objects.csv"
     pairs_p = out_p / "pairs.csv"
@@ -282,9 +287,17 @@ def handle_if_preflight(args: argparse.Namespace) -> int:
     """Executes immunofluorescence preflight audit."""
     from matrix_mat.if_density.preflight import run_if_preflight
 
-    data_dir = getattr(args, "data_dir", None) or resolve_data_root() / "if"
-    model_path = getattr(args, "model_path", "models/cpsam_v2")
-    allow_unpaired = getattr(args, "allow_unpaired", False)
+    # Check the same data, weights and unpaired-field rule the sweep config will use.
+    cfg = None
+    cfg_path = Path(getattr(args, "config", "") or "")
+    if cfg_path.is_file():
+        from matrix_mat.if_density.config import IFSweepConfig
+        cfg = IFSweepConfig.from_yaml(cfg_path)
+    data_dir = getattr(args, "data_dir", None) or (cfg.data_dir if cfg else resolve_data_root() / "if")
+    model_path = getattr(args, "model_path", None) or (
+        str(cfg.model.pretrained_model) if cfg else str(resolve_models_root() / "cpsam_v2")
+    )
+    allow_unpaired = bool(getattr(args, "allow_unpaired", False) or (cfg.allow_unpaired if cfg else False))
 
     print("\n[*] Executing Immunofluorescence Preflight Audit...\n")
     audit = run_if_preflight(data_dir=str(data_dir), model_path=model_path, allow_unpaired=allow_unpaired)
@@ -296,13 +309,22 @@ def handle_if_sweep(args: argparse.Namespace) -> int:
     """Executes immunofluorescence parameter sweep."""
     from matrix_mat.if_density.sweep import run_sweep
 
+    import matrix_mat.if_density.sweep as sweep_mod
+
     cfg_path = Path(args.config)
-    run_sweep(
-        config_path=str(cfg_path),
-        allow_unpaired_override=getattr(args, "allow_unpaired", False),
-        overwrite_override=getattr(args, "overwrite", False),
-        scope=getattr(args, "scope", "full"),
-    )
+    try:
+        sweep_mod.run_sweep(
+            config_path=str(cfg_path),
+            allow_unpaired_override=getattr(args, "allow_unpaired", False),
+            overwrite_override=getattr(args, "overwrite", False),
+            scope=getattr(args, "scope", "full"),
+            runs_dir_override=getattr(args, "runs_dir", None),
+            data_dir_override=getattr(args, "data_dir", None),
+            sample_n=getattr(args, "sample", None),
+        )
+    except (FileNotFoundError, ValueError, RuntimeError, ImportError) as e:
+        logger.error(f"IF sweep aborted: {e}")
+        return 1
     return 0
 
 
@@ -310,7 +332,7 @@ def handle_if_compare(args: argparse.Namespace) -> int:
     """Executes cross-run IF comparison."""
     from matrix_mat.if_density.comparator import generate_cross_run_comparison
 
-    runs_dir = getattr(args, "runs_dir", "runs")
+    runs_dir = resolve_runs_dir(getattr(args, "runs_dir", None))
     output_dir = getattr(args, "output_dir", None)
     generate_cross_run_comparison(runs_dir=runs_dir, output_dir=output_dir)
     return 0
@@ -318,15 +340,20 @@ def handle_if_compare(args: argparse.Namespace) -> int:
 
 def handle_if_compare_prepost(args: argparse.Namespace) -> int:
     """Executes pre/post ablation comparison."""
-    from matrix_mat.if_density.comparator_prepost import run_comparator_prepost
+    import matrix_mat.if_density.comparator_prepost as cp
 
-    runs_dir = getattr(args, "runs_dir", "runs")
+    runs_dir = resolve_runs_dir(getattr(args, "runs_dir", None))
     output_dir = getattr(args, "output_dir", None)
-    run_comparator_prepost(runs_dir=runs_dir, output_dir=output_dir)
+    cp.run_comparator_prepost(runs_dir=runs_dir, output_dir=output_dir)
 
     if getattr(args, "biological", False):
-        from matrix_mat.if_density.comparator_biological import generate_all_if_biological_figures
-        generate_all_if_biological_figures(run_dir=runs_dir, output_dir=output_dir)
+        import matrix_mat.if_density.comparator_biological as cb
+        # Biological figures describe one run: the full pre+post pipeline (PP11).
+        pp11 = sorted(p for p in runs_dir.glob("*PP11*") if p.is_dir())
+        if not pp11:
+            logger.error(f"--biological: no *PP11* run found in {runs_dir}")
+            return 1
+        cb.generate_all_if_biological_figures(run_dir=pp11[0], output_dir=output_dir)
     return 0
 
 
@@ -334,7 +361,7 @@ def handle_if_compare_biological(args: argparse.Namespace) -> int:
     """Generates biological comparison figures across hydrogels."""
     from matrix_mat.if_density.comparator_biological import generate_all_if_biological_figures
 
-    run_dir = getattr(args, "run_dir", "runs/104_PP11_full")
+    run_dir = getattr(args, "run_dir", None) or resolve_runs_dir(None) / "104_PP11_full"
     output_dir = getattr(args, "output_dir", None)
     generate_all_if_biological_figures(run_dir=run_dir, output_dir=output_dir)
     return 0

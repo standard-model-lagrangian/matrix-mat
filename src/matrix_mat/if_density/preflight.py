@@ -116,6 +116,15 @@ def audit_if_dataset(
     stats["paired_fields"] = len(paired)
     stats["unpaired_fields"] = total_unpaired
 
+    from matrix_mat.if_density.pairing import parse_field_metadata
+    materials = set()
+    for base in sorted(paired):
+        try:
+            materials.add(parse_field_metadata(base)[0])
+        except ValueError:
+            warnings.append(f"Unrecognised IF filename (no material/gel): {base}")
+    stats["materials"] = sorted(materials)
+
     if len(paired) == 0:
         fatal_errors.append(
             "Found 0 paired fields with both nuclear channel (_ch00) and actin channel (_ch02). "

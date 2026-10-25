@@ -28,3 +28,13 @@ def test_duplicate_link_to_fov_outside_group_is_ignored():
     ]
     counts = get_effective_fov_counts(pd.DataFrame(rows))
     assert counts.iloc[0]["n_fovs"] == 2
+
+
+def test_pooled_biomass_panel_does_not_borrow_significance_from_another_test():
+    """Panel A plots well-pooled biomass FC; condition_summary significance tests spheroid FC, so it must not be shown there."""
+    import inspect
+    from matrix_mat.reporting import presentation_plots
+
+    src = inspect.getsource(presentation_plots.generate_all_presentation_figures)
+    panel_a = src[src.index("FIGURE 1"):src.index("ax1.axhline")]
+    assert "significance" not in panel_a

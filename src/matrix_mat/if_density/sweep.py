@@ -517,10 +517,17 @@ def run_sweep(
     overwrite_override: bool = False,
     scope: str = "full",
     engine: Optional[Any] = None,
+    runs_dir_override: Optional[str] = None,
+    data_dir_override: Optional[str] = None,
+    sample_n: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Execute sweep runs defined in config with optional subset scope and pre/post-processing."""
     config_obj = IFSweepConfig.from_yaml(config_path)
     config = config_obj.model_dump()
+    if runs_dir_override:
+        config["runs_dir"] = str(runs_dir_override)
+    if data_dir_override:
+        config["data_dir"] = str(data_dir_override)
 
     runs_dir = Path(config["runs_dir"])
     runs_dir.mkdir(parents=True, exist_ok=True)
@@ -537,6 +544,8 @@ def run_sweep(
     field_records, unpaired_bases, engine = discover_inputs(
         config=config, scope=scope, allow_unpaired=allow_unpaired, engine=engine
     )
+    if sample_n is not None:
+        field_records = field_records[: int(sample_n)]
 
     logger.info(f"Beginning sweep across {len(combos)} configurations on {len(field_records)} fields.")
 

@@ -125,10 +125,16 @@ features:
             f"Actual ({len(df_actual.columns)}): {list(df_actual.columns)}\n"
             f"Golden ({len(df_golden.columns)}): {list(df_golden.columns)}"
         )
+        # Integer columns (counts, flags) must match exactly. Float measurements get 0.5%: the actin
+        # cross-section uses OpenCV's 8-bit Gaussian blur, whose fixed-point rounding differs between
+        # x86 (CI) and ARM builds by a pixel or two of spheroid area (~0.1% in nuclei_per_mm2).
+        float_cols = df_golden.select_dtypes("float").columns
+        other_cols = [c for c in df_golden.columns if c not in float_cols]
+        pd.testing.assert_frame_equal(df_actual[other_cols], df_golden[other_cols], check_exact=True)
         pd.testing.assert_frame_equal(
-            df_actual,
-            df_golden,
+            df_actual[float_cols],
+            df_golden[float_cols],
             check_exact=False,
-            rtol=1e-6,
+            rtol=5e-3,
             atol=1e-8,
         )

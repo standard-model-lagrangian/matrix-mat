@@ -81,32 +81,31 @@ def test_no_dead_flags():
     assert if_sweep_args.allow_unpaired is True
 
 
-def test_readme_commands_parse():
-    """Extract every fenced bash command in README.md starting with matrix-mat, and assert it parses without error."""
+@pytest.mark.parametrize("doc", ["README.md", "docs/BEGINNER_GUIDE.md", "docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md"])
+def test_readme_commands_parse(doc):
+    """Every `matrix-mat ...` command in fenced bash blocks (and inline code) of the user docs must parse."""
     repo_root = Path(__file__).resolve().parent.parent.parent
-    readme_path = repo_root / "README.md"
-    assert readme_path.exists(), "README.md not found"
-
-    content = readme_path.read_text(encoding="utf-8")
+    content = (repo_root / doc).read_text(encoding="utf-8")
     parser = build_parser()
 
-    # Find all bash/sh code blocks
-    pattern = re.compile(r"```(?:bash|sh)?\n(.*?)```", re.DOTALL)
-    blocks = pattern.findall(content)
+    candidates = []
+    for block in re.findall(r"```(?:bash|sh)?\n(.*?)```", content, re.DOTALL):
+        candidates += block.splitlines()
+    candidates += re.findall(r"`(matrix-mat [^`]+)`", content)
 
     commands_tested = 0
-    for block in blocks:
-        for line in block.splitlines():
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("matrix-mat "):
-                tokens = shlex.split(line)[1:]  # strip 'matrix-mat'
-                parsed = parser.parse_args(tokens)
-                assert parsed.domain in ("bf", "if")
-                commands_tested += 1
+    for line in candidates:
+        line = line.strip()
+        if not line.startswith("matrix-mat "):
+            continue
+        tokens = shlex.split(line, comments=True)[1:]  # strip 'matrix-mat' and trailing comments
+        if "--help" in tokens or "-h" in tokens or "<bf|if>" in line or len(tokens) < 2:
+            continue  # help invocations and bare `matrix-mat bf` labels are not runnable commands
+        parsed = parser.parse_args(tokens)
+        assert parsed.domain in ("bf", "if"), line
+        commands_tested += 1
 
-    assert commands_tested > 0, "No matrix-mat commands found in README.md to test"
+    assert commands_tested > 0, f"No matrix-mat commands found in {doc}"
 
 
 @pytest.mark.parametrize("backend", ["cyto3", "sam"])
@@ -159,3 +158,89 @@ def test_bf_run_exit_code_zero_on_success(tmp_path, monkeypatch):
     ])
     assert code == 0
     assert list(tmp_path.iterdir()) == [tmp_path / "out"], "bf run must not write outside --output-dir"
+
+
+def test_if_sweep_flags_reach_the_sweep(monkeypatch, tmp_path):
+    """--runs-dir, --data-dir and --sample must be passed through, not parsed and dropped."""
+    import matrix_mat.if_density.sweep as sweep_mod
+
+    seen = {}
+
+    def fake_run_sweep(**kwargs):
+        seen.update(kwargs)
+        return {"status": "SUCCESS"}
+
+    monkeypatch.setattr(sweep_mod, "run_sweep", fake_run_sweep)
+    code = main(["if", "sweep", "--config", str(REPO_ROOT / "configs" / "sweep.yaml"),
+                 "--runs-dir", str(tmp_path / "r"), "--data-dir", str(tmp_path / "d"), "--sample", "3"])
+    assert code == 0
+    assert seen["runs_dir_override"] == str(tmp_path / "r")
+    assert seen["data_dir_override"] == str(tmp_path / "d")
+    assert seen["sample_n"] == 3
+
+
+def test_if_commands_default_to_output_root_runs(monkeypatch, tmp_path):
+    """compare/compare-prepost/compare-biological must look where `if sweep` writes: ${OUTPUT_ROOT}/runs."""
+    monkeypatch.setenv("MATRIX_MAT_OUTPUT_ROOT", str(tmp_path / "out"))
+    parser = build_parser()
+    runs = str(tmp_path / "out" / "runs")
+    assert parser.parse_args(["if", "compare"]).runs_dir in (None, runs)
+    from matrix_mat.cli import resolve_runs_dir
+    assert str(resolve_runs_dir(None)) == runs
+    assert str(resolve_runs_dir("x")) == "x"
+
+
+def test_if_sweep_cli_returns_nonzero_on_failure(monkeypatch):
+    import matrix_mat.if_density.sweep as sweep_mod
+
+    def boom(**kwargs):
+        raise FileNotFoundError("weights missing")
+
+    monkeypatch.setattr(sweep_mod, "run_sweep", boom)
+    assert main(["if", "sweep", "--config", str(REPO_ROOT / "configs" / "sweep.yaml")]) == 1
+
+
+def test_compare_prepost_biological_uses_the_full_pipeline_run(monkeypatch, tmp_path):
+    import matrix_mat.if_density.comparator_prepost as cp
+    import matrix_mat.if_density.comparator_biological as cb
+
+    runs = tmp_path / "runs"
+    (runs / "104_PP11_full").mkdir(parents=True)
+    monkeypatch.setattr(cp, "run_comparator_prepost", lambda **kw: runs / "comparison_prepost")
+    seen = {}
+    monkeypatch.setattr(cb, "generate_all_if_biological_figures", lambda run_dir, output_dir=None: seen.setdefault("run_dir", run_dir))
+    assert main(["if", "compare-prepost", "--runs", str(runs), "--biological"]) == 0
+    assert str(seen["run_dir"]) == str(runs / "104_PP11_full")
+
+
+def _if_dataset_with_unpaired(tmp_path):
+    import shutil
+    data = tmp_path / "if"
+    shutil.copytree(REPO_ROOT / "tests" / "fixtures" / "synthetic_if_dataset", data)
+    src = next(data.glob("*_ch00.tif"))
+    shutil.copy(src, data / "SKOV3 Spheroid D7 Mor_S50-Gel3-1_ch00.tif")  # nuclear channel without actin partner
+    return data
+
+
+@pytest.mark.parametrize("allow,expected", [(True, 0), (False, 1)])
+def test_if_preflight_follows_config_allow_unpaired(tmp_path, monkeypatch, allow, expected):
+    """Preflight must apply the same allow_unpaired rule as the sweep it is checking."""
+    import yaml as _yaml
+
+    data = _if_dataset_with_unpaired(tmp_path)
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "cpsam_v2").write_bytes(b"x")
+    cfg = _yaml.safe_load((REPO_ROOT / "configs" / "prepost_ablation.yaml").read_text())
+    cfg.update({"data_dir": str(data), "allow_unpaired": allow})
+    cfg["model"]["pretrained_model"] = str(tmp_path / "models" / "cpsam_v2")
+    cfg_path = tmp_path / "c.yaml"
+    cfg_path.write_text(_yaml.safe_dump(cfg))
+    assert main(["if", "preflight", "--config", str(cfg_path)]) == expected
+
+
+def test_if_preflight_reports_materials(tmp_path):
+    from matrix_mat.if_density.preflight import run_if_preflight
+
+    report = run_if_preflight(data_dir=str(_if_dataset_with_unpaired(tmp_path)), model_path=str(tmp_path / "none"),
+                              allow_unpaired=True)
+    assert sorted(report.stats["materials"]) == ["Mat", "S34D30"]

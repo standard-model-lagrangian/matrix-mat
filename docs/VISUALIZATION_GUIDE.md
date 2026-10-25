@@ -15,10 +15,10 @@ All figures are automatically generated in `output/figures/` in both **high-reso
 ┌─────────────────────────────────┬─────────────────────────────────┬─────────────────────────────────┐
 │ Panel A: Pooled Well Fold Change│ Panel B: Population Shifts      │ Panel C: Paired Spheroid Growth │
 │ Boxplot of ΣV7 / ΣV0 per well   │ t0 vs t7 volume distributions   │ Fold change vs baseline volume  │
-│ Wilcoxon test vs H0: FC = 1.0   │ Spheroid enlargement            │ Hungarian matched pairs         │
+│ Descriptive, n = wells          │ Spheroid enlargement            │ Hungarian matched pairs         │
 └─────────────────────────────────┴─────────────────────────────────┴─────────────────────────────────┘
 ```
-- **Panel A (Total Pooled Biomass Fold Change)**: Evaluates overall biomass growth at the well-replicate level ($N=6\text{--}8$ independent hydrogels per condition). A diamond marks the condition mean, and a horizontal dashed red line marks the no-growth boundary ($\text{FC}=1.0$). Statistically honest one-tailed Wilcoxon signed-rank tests assess significant growth ($^*p<0.05$, $^{**}p<0.01$).
+- **Panel A (Total Pooled Biomass Fold Change)**: total spheroid volume per well, Day 7 / Day 0 ($\Sigma V_7 / \Sigma V_0$), one point per well, with the number of wells printed above each box. A diamond marks the mean; the dashed red line is no growth ($\text{FC}=1.0$). This panel is descriptive: no hypothesis test is computed for pooled biomass. Gel-level tests of per-spheroid fold change are in `condition_summary.csv`.
 - **Panel B (Population Volume Shifts)**: Side-by-side boxplots showing all individual `PASS` spheroids at Day 0 ($t_0$, blue) vs Day 7 ($t_7$, amber) on a logarithmic scale.
 - **Panel C (Growth vs Initial Size)**: Scatter plot of matched spheroid pairs showing whether smaller or larger spheroids grow faster in each gel formulation.
 
@@ -83,17 +83,17 @@ Disentangles the biological mode of growth across hydrogels by separating:
 
 ## 2. Immunofluorescence (IF) Biological Comparison Figures
 
-Generated in `runs/<run_slug>/figures/` or `runs/comparison/biological_figures/`:
+Generated in `output/runs/<run>/figures/` (e.g. by `matrix-mat if compare-biological` or `if compare-prepost --biological`):
 
 ### Figure 1: Cross-Material Nuclei Density Distributions
 `fig_if_nuclei_density_by_material.png` / `.pdf`
-- **Panel A (Linear Scale)**: Boxplot of nuclear packing density ($10^3\,\text{nuclei/mm}^3$) across hydrogel materials with overlay jittered points for each FOV. Condition means are indicated by yellow diamonds. Two-sided Mann-Whitney U tests annotate significance against the `Mat` control ($^*p<0.05$, $^{**}p<0.01$, $^{***}p<0.001$).
+- **Panel A (Linear Scale)**: planar nuclear density (nuclei/mm² of spheroid cross-section), one point per field, with yellow diamonds for means. Stars appear only when `summary/summary_by_material.csv` holds a gel-level permutation test against `Mat` with Holm-adjusted $p<0.05$; the subtitle states whether a test was computed. Materials with a single gel are labelled as having insufficient replicates.
 - **Panel B (Log Scale)**: Captures the full dynamic range of nuclear density variations across soft vs stiff hydrogels.
 
 ### Figure 2: Clean vs All-Cohort Biological Robustness
 `fig_if_clean_vs_all_density.png` / `.pdf`
 - Paired comparison bars showing mean $\pm$ SD nuclei density for **All Cohort (Unfiltered)** vs **Clean Only (QC Outliers Excluded)**.
-- Demonstrates that removing blurry or artifact-heavy fields does not alter the biological rank order or relative stiffness response across formulations.
+- A descriptive sensitivity check: compare the two bars per material to see how much excluding QC-flagged fields moves the mean. It is not a test.
 
 ### Figure 3: Single-Nucleus Volume Distributions Across Hydrogels
 `fig_if_nuclear_volume_distributions.png` / `.pdf`

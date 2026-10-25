@@ -1,136 +1,232 @@
-# matrix-mat: Spheroid & Immunofluorescence Image Analysis Pipelines
+# matrix-mat
 
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
-[![PyTorch MPS/CUDA](https://img.shields.io/badge/PyTorch-MPS%20%7C%20CUDA%20%7C%20CPU-orange.svg)](https://pytorch.org/)
-[![Cellpose-SAM](https://img.shields.io/badge/Cellpose--SAM-cpsam__v2-green.svg)](https://www.cellpose.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/standard-model-lagrangian/matrix-mat/actions/workflows/ci.yml/badge.svg)](https://github.com/standard-model-lagrangian/matrix-mat/actions/workflows/ci.yml)
+[![Python 3.10–3.13](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-An end-to-end, seeded and provenance-tracked image analysis suite to quantify cancer spheroid morphology, volume change, and planar nuclear packing density across engineered biomaterial hydrogels. CPU runs are bitwise reproducible; GPU/MPS inference is reproducible within a small tolerance (see [Validation](docs/VALIDATION.md)).
+Image analysis for cancer spheroids grown in engineered hydrogels. Two pipelines share one CLI:
 
----
+| Pipeline | Input | Measures | Key output |
+| :--- | :--- | :--- | :--- |
+| **Brightfield** (`matrix-mat bf`) | Day 0 and Day 7 transmitted-light TIFFs (EVOS) | Spheroid size and shape; Day 0 → Day 7 volume fold change of tracked spheroids | `condition_summary.csv`, figures 1–6, `report.html` |
+| **Immunofluorescence** (`matrix-mat if`) | Paired nuclear (`_ch00`) and F-actin (`_ch02`) confocal TIFFs | Nuclei per mm² of spheroid cross-section, nuclear morphology | `summary/summary_by_material.csv`, biological figures |
 
-## Architecture Overview
+Segmentation uses [Cellpose-SAM](https://www.cellpose.org/) (`cpsam_v2`, checksum-pinned), with a classical CPU backend for tests. Statistical inference is done at the level of the **gel** (biological replicate), not the individual spheroid. Every run records its inputs, configuration, code version, dependency lock and model hash.
 
-The repository hosts two decoupled image analysis pipelines:
-
-```
-                                    ┌─────────────────────────────────────────────────────────────┐
-                                    │               RAW EXPERIMENTAL MICROSCOPY                   │
-                                    └──────────────────────────────┬──────────────────────────────┘
-                                                                   │
-                                  ┌────────────────────────────────┴────────────────────────────────┐
-                                  ▼                                                                 ▼
-                    ┌───────────────────────────┐                                     ┌───────────────────────────┐
-                    │  Brightfield Spheroids    │                                     │  Immunofluorescence (IF)  │
-                    │   Day 0 vs Day 7 Growth   │                                     │   Nuclear Packing Density │
-                    └─────────────┬─────────────┘                                     └─────────────┬─────────────┘
-                                  │                                                                 │
-                                  ▼                                                                 ▼
-                    • Multi-spheroid segmentation                                       • Cellpose-SAM nuclear seg
-                    • Optical scale extraction (um)                                     • Rolling-ball background
-                    • Multi-criteria QC gating                                          • Clump splitting & size gate
-                    • Hungarian centroid pairing                                        • Border clearance exclusion
-                    • Biomass & volume change kinetics                                  • Planar areal density (nuclei/mm²)
-                    • Presentation Figures 1–6                                          • Cross-material comparisons
-```
+> **What's new in 0.2.1:** verification fixes for the 0.2 restructure. The IF configs no longer crash, and missing model weights now fail the run instead of returning empty results. CIs are on the correct scale and IF has gel-level tests. Thresholds are no longer derived from the data being judged, and dependencies are locked with hashes. CI now enforces lint, type checks and coverage. Details: [CHANGELOG](CHANGELOG.md) · real-data impact: [RESULTS_DELTA](docs/findings/RESULTS_DELTA.md).
 
 ---
 
-## Documentation Roadmap
+## Contents
 
-For in-depth specifications, consult our documentation:
-
-| Guide | Description |
-| :--- | :--- |
-| **[Dataset & Data Structure](docs/DATA.md)** | Directory layouts, filename conventions, optical calibration, and data acquisition. |
-| **[Pipeline Validation](docs/VALIDATION.md)** | What has been validated (synthetic ground truth, statistics) and what has not yet (manual counts, cross-backend). |
-| **[Beginner's Guide](docs/BEGINNER_GUIDE.md)** | Step-by-step tutorial, configuration breakdown, and result interpretation. |
-| **[Agents & Maintainers](docs/AGENTS_AND_MAINTAINERS.md)** | Architecture, data contracts, caching mechanisms, and engineering guidelines. |
-| **[Reproducibility & Troubleshooting](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md)** | Preflight auditing, `run_metadata.json`, SHA-256 manifests, and issue remediation. |
-| **[Scientific Visualization Guide](docs/VISUALIZATION_GUIDE.md)** | Presentation Figures 1–6 gallery, IF plots, and statistical annotations. |
+- [Installation](#installation)
+- [Data layout](#data-layout)
+- [Quick start](#quick-start)
+- [CLI reference](#cli-reference)
+- [Configuration](#configuration)
+- [Statistics and limitations](#statistics-and-limitations)
+- [Development](#development)
+- [Repository layout](#repository-layout)
+- [Documentation](#documentation)
 
 ---
 
-## Quickstart Guide
+## Installation
 
-For a fresh clone:
+**Requirements:** Python 3.10–3.13 on macOS or Linux, about 1.3 GB of disk for the model weights, and optionally an Apple-silicon (MPS) or NVIDIA (CUDA) GPU. The steps below use [`uv`](https://docs.astral.sh/uv/); plain `pip` works the same way (see the note further down).
 
 ```bash
-# 1. Create and activate virtual environment
-uv venv
+git clone https://github.com/standard-model-lagrangian/matrix-mat.git
+cd matrix-mat
+
+# 1. Environment
+uv venv --python 3.12
 source .venv/bin/activate
 
-# 2. Install pinned dependencies, then the package (add [dev] for tests)
+# 2. Exact, hash-verified dependencies (includes torch + cellpose), then the package itself
 uv pip install --require-hashes -r requirements-lock.txt
-uv pip install -e ".[dl]"
+uv pip install -e ".[dl,dev]" --no-deps
 
-# 3. Download and verify pinned Cellpose-SAM model weights
+# 3. Model weights (~1.2 GB) into ./models, verified against models.lock.json
 python tools/fetch_models.py
-
-# 4. Configure data root path
-export MATRIX_MAT_DATA_ROOT=data
-
-# 5. Brightfield preflight audit and run
-matrix-mat bf preflight
-matrix-mat bf run --config configs/spheroid_brightfield.yaml
-matrix-mat bf plots --output-dir output
-
-# 6. Immunofluorescence preflight audit and sweep
-matrix-mat if preflight
-matrix-mat if sweep --config configs/sweep.yaml
-matrix-mat if compare-prepost --runs runs/ --biological
 ```
+
+Check the install:
+
+```bash
+matrix-mat --help
+pytest -m "not slow and not dl and not realdata"   # ~1 min, no GPU or data needed
+```
+
+> **Using `pip` instead of `uv`:** run `python -m venv .venv && source .venv/bin/activate`, then `pip install -r requirements-lock.txt` (pip switches to hash-checking automatically) and `pip install -e ".[dl,dev]" --no-deps`.
+>
+> **No GPU:** everything runs on CPU, just more slowly. The device is detected automatically, or set it with `--device cpu|mps|cuda`.
+>
+> **Optional `cpdino` backend:** this needs `pip install git+https://github.com/facebookresearch/dinov3`. The default `cpsam` backend does not.
 
 ---
 
-## Unified CLI Reference (`matrix-mat`)
+## Data layout
 
-The unified CLI provides dedicated subcommands for brightfield (`bf`) and immunofluorescence (`if`) analysis:
+Paths are resolved from four roots, set by environment variables. Each has a sensible default:
 
-### Brightfield Commands (`matrix-mat bf`)
+| Variable | Default | Holds |
+| :--- | :--- | :--- |
+| `MATRIX_MAT_DATA_ROOT` | `./data` | input images |
+| `MATRIX_MAT_OUTPUT_ROOT` | `./output` | results (`./output/runs` for IF) |
+| `MATRIX_MAT_MODELS_ROOT` | `./models` | `cpsam_v2` weights |
+| `MATRIX_MAT_CACHE_DIR` | `$OUTPUT_ROOT/cache/masks` | content-addressed mask cache |
 
-```bash
-# Preflight data and calibration integrity check
-matrix-mat bf preflight --config configs/spheroid_brightfield.yaml
+The expected input layout:
 
-# Run full brightfield pipeline
-matrix-mat bf run --config configs/spheroid_brightfield.yaml --output-dir output
-
-# Run on a sample of images for fast verification
-matrix-mat bf run --config configs/spheroid_brightfield.yaml --sample 10
-
-# Generate presentation figures from existing CSVs
-matrix-mat bf plots --output-dir output
+```
+data/
+├── brightfield/
+│   ├── Day0/   Day0 Mat gel1_0001_TRANS.tif, Day0 S34D30 gel2_0003_TRANS.tif, …
+│   └── Day7/   Day7 Mat gel1_0001_TRANS.tif, …
+└── if/         SKOV3 Spheroid D7 Mor_Mat-Gel1-2_ch00.tif  (+ matching _ch02.tif), …
 ```
 
-### Immunofluorescence Commands (`matrix-mat if`)
-
-```bash
-# Preflight channel pairing and hardware acceleration check
-matrix-mat if preflight --config configs/sweep.yaml
-
-# Execute parameter sweep across configurations
-matrix-mat if sweep --config configs/sweep.yaml --runs-dir runs
-
-# Cross-run pre/post ablation comparison
-matrix-mat if compare-prepost --runs runs/ --biological
-
-# Biological figures comparison across materials
-matrix-mat if compare-biological --run-dir runs/104_PP11_full
-```
+Filenames encode condition, gel (the replicate) and field of view. A name that doesn't match the pattern raises an error rather than being guessed. Folders named differently can be symlinked into this layout or passed with `--t0-dir/--t7-dir` (brightfield) or `--data-dir` (IF). See [docs/DATA.md](docs/DATA.md) for the full conventions and calibration rules.
 
 ---
 
-## Statistical Methods & Rigor
+## Quick start
 
-- **Unit of Analysis**: Formal statistical inference is performed at the **biological unit level (gel/well)** rather than the spheroid level to prevent pseudo-replication. Spheroid-level measurements are reported as descriptive population statistics.
-- **Hierarchical Resampling**: Confidence intervals for median fold changes are computed using a two-stage hierarchical bootstrap (resampling gels, then spheroids within gels).
-- **Cluster Permutation Testing**: Differences between hydrogel conditions and the control condition (`Mat`) are tested using exact cluster label permutations for small sample sizes, with Holm-Bonferroni multiplicity correction.
-- **Paired Growth Testing**: Volume fold changes between Day 0 and Day 7 for matched spheroids are evaluated using two-sided Wilcoxon signed-rank tests.
-- **Known Limitations**:
-  - Spherical volumes are estimated from 2D cross-sectional area: $V = \frac{\pi}{6} d_{\text{eq}}^3$. This assumes spherical geometry.
-  - IF nuclear density readouts reflect single-plane confocal optical sections and are reported as planar areal density ($\text{nuclei/mm}^2$ of spheroid cross-section), not true 3D volumetric packing. True volumetric density requires 3D confocal z-stacks.
-  - **Statistical power is limited by the number of gels.** With 3–4 gels per condition, the smallest attainable two-sided gel-level permutation p-value is about 0.03–0.17, so after Holm correction across five materials no comparison can reach p < 0.05. Report effect sizes with their confidence intervals; adding gels is the only way to gain power.
-  - Bootstrap intervals are computed on the log₂ fold-change scale (`log2fc_ci_95_*`) and back-transformed (`bootstrap_ci_95_*`, fold-change scale). With very few gels the hierarchical bootstrap interval is itself unstable.
-- **IF inference**: per-field planar densities are averaged per gel and compared with the control by the same gel-level permutation test with Holm correction (`summary/summary_by_material.csv`: `p_raw`, `p_adj`, `min_achievable_p`). Field-level means/SDs are descriptive only.
-- **Provisional thresholds**: the IF nuclear reference volume (841.04 µm³) and blur threshold (Laplacian variance 150) were derived from this dataset and are marked provisional in `configs/*.yaml`.
+### Brightfield: Day 0 → Day 7 growth
+
+```bash
+export MATRIX_MAT_DATA_ROOT=/path/to/data
+
+matrix-mat bf preflight                      # checks pairing, calibration, control group
+matrix-mat bf run --sample 12                # quick look at 12 stratified images
+matrix-mat bf run                            # full dataset → ./output
+matrix-mat bf plots                          # re-draw figures from existing CSVs
+```
+
+The brightfield run writes to `./output/`:
+
+- `objects.csv`: every spheroid, with morphology, QC flag and segmentation backend
+- `pairs.csv`: tracked Day 0 → Day 7 pairs and their fold changes
+- `condition_summary.csv`: gel-level statistics per condition
+- `figures/`, `overlays/`, `contact_sheets/`, and `report.md` / `report.html`
+- `run_metadata.json` and `manifest.csv`: full provenance
+
+### Immunofluorescence: nuclear packing density
+
+```bash
+matrix-mat if preflight                                        # channel pairing, weights
+matrix-mat if sweep --config configs/prepost_ablation.yaml     # 2×2 pre/post ablation → ./output/runs
+matrix-mat if compare-prepost --biological                     # ablation report + PP11 figures
+```
+
+Each run is written to `./output/runs/<run>/`, containing `features/per_image.csv`, `qc/qc_flags.csv`, `summary/summary_by_material.csv` (gel-level tests) and `run_metadata.json`.
+
+---
+
+## CLI reference
+
+| Command | Purpose | Useful options |
+| :--- | :--- | :--- |
+| `matrix-mat bf preflight` | Validate inputs before a run | `-c CONFIG`, `--t0-dir`, `--t7-dir`, `--pixel-size` |
+| `matrix-mat bf run` | Segment, measure, pair, test, report | `--sample N`, `--condition NAME`, `--backend {cpsam,cpdino,classical}`, `--device`, `--no-cache`, `-o DIR` |
+| `matrix-mat bf plots` | Figures from existing CSVs | `-o DIR` |
+| `matrix-mat if preflight` | Validate IF channel pairs and weights | `--data-dir`, `--model-path`, `--allow-unpaired` |
+| `matrix-mat if sweep` | Run every combo in a sweep config | `-c CONFIG`, `--runs-dir`, `--data-dir`, `--sample N`, `--overwrite` |
+| `matrix-mat if compare` | Cross-run comparison | `--runs DIR` |
+| `matrix-mat if compare-prepost` | Ablation report (+ `--biological` figures) | `--runs DIR`, `--biological` |
+| `matrix-mat if compare-biological` | Figures for one run | `--run-dir DIR` |
+
+Every command exits non-zero on failure, including missing weights, invalid configs and unknown backends. Run `matrix-mat <bf|if> <command> --help` for the full option list.
+
+---
+
+## Configuration
+
+All analysis parameters live in `configs/`. Each file is validated against a schema, so a typo or unknown key is an error.
+
+| File | Use |
+| :--- | :--- |
+| `spheroid_brightfield.yaml` | Brightfield pipeline: QC gates, pairing, statistics, artefacts (commented line by line) |
+| `prepost_ablation.yaml` | IF 2×2 pre/post-processing ablation (PP00 / PP10 / PP01 / PP11) |
+| `sweep.yaml` | IF Cellpose hyper-parameter sweep (no pre/post-processing) |
+| `robustness_check.yaml` | IF hyper-parameter sweep with pre/post-processing |
+
+Two IF thresholds are **provisional**. Both were derived from this dataset and are marked in the YAML:
+
+- the reference nuclear volume, `reference_vol_um3: 841.04`
+- the blur cut-off, `blur_abs_threshold: 150`
+
+Replace them with independent values before publication.
+
+---
+
+## Statistics and limitations
+
+- **Unit of inference: the gel.**
+  - Brightfield: medians of log₂ fold change with a two-stage (gel → spheroid) bootstrap CI.
+  - Both pipelines: conditions are compared with Mat by an exact gel-label permutation test, Holm-corrected across conditions.
+  - Spheroid- and field-level numbers are descriptive only.
+- **Paired growth:** Day 0 vs Day 7 volumes of tracked spheroids use a Wilcoxon signed-rank test.
+- **QC never drops data silently.** Objects are flagged PASS, REVIEW or FAIL, or SEG_FAIL when segmentation failed. Statistics use PASS pairs, and the analysed population is named in the output.
+- **Limitations**
+  - **Power.** The current data has 2–4 gels per condition, so the smallest attainable p-value is about 0.03–0.33; after Holm correction nothing can reach 0.05. Read the results as effect sizes with CIs. See [RESULTS_DELTA](docs/findings/RESULTS_DELTA.md).
+  - **Volume assumes a sphere.** Volume is estimated from 2D area, V = π/6 · d³.
+  - **IF density is planar.** IF fields are single optical sections, so density is per mm² of cross-section; true 3D density needs z-stacks.
+  - **Manual-count validation is pending.** The reference file has no recorded provenance; see [tests/data/README.md](tests/data/README.md).
+
+What has and hasn't been validated is listed in [docs/VALIDATION.md](docs/VALIDATION.md).
+
+---
+
+## Development
+
+```bash
+pytest -m "not slow and not dl and not realdata"   # fast suite (what CI runs on 3.10–3.13)
+pytest -m dl                                       # needs torch, cellpose and the weights
+pytest --update-golden tests/regression            # regenerate golden outputs after an intended change
+ruff check --select E9,F63,F7,F82 src tests tools
+mypy src/matrix_mat/core --ignore-missing-imports
+```
+
+CI enforces ruff, mypy on `core/`, and test coverage of at least 60% overall and 80% on `core/`. Tests never write into the repository; a session-wide guard fails the run if one does.
+
+Golden regression files compare integer columns exactly and float columns to within 0.5%, because OpenCV's 8-bit image operations round slightly differently on x86 and ARM.
+
+---
+
+## Repository layout
+
+```
+src/matrix_mat/
+├── core/          # units, scale extraction, naming, statistics, cache, paths, provenance
+├── brightfield/   # segmentation, QC, measurement, pairing, statistics, pipeline
+├── if_density/    # preprocessing, post-processing, features, QC, sweep, comparators
+├── reporting/     # figures and reports (display only, no statistics)
+└── cli.py         # `matrix-mat` entry point
+configs/           # validated YAML configs
+tests/             # unit / integration / regression / slow, plus synthetic fixtures
+tools/             # fetch_models.py
+docs/              # guides, validation, findings
+analyses/          # separate NMR / rheology / paper-reproduction work (not part of the package)
+```
+
+`spheroid_pipeline_v2` and `spheroid_if_sweep` are deprecated aliases kept for old imports. They emit a `DeprecationWarning`.
+
+---
+
+## Documentation
+
+| Guide | For |
+| :--- | :--- |
+| [Beginner's guide](docs/BEGINNER_GUIDE.md) | First run, step by step, and how to read the outputs |
+| [Data](docs/DATA.md) | Folder layout, filename conventions, calibration |
+| [Validation](docs/VALIDATION.md) | What is verified, and how |
+| [Visualization guide](docs/VISUALIZATION_GUIDE.md) | What each figure shows |
+| [Reproducibility & troubleshooting](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md) | Provenance files, common errors |
+| [Maintainers](docs/AGENTS_AND_MAINTAINERS.md) | Architecture and data contracts |
+| [Results delta](docs/findings/RESULTS_DELTA.md) | How the real-data results changed in 0.2 |
+
+## Citation & licence
+
+If you use this software, please cite it via [CITATION.cff](CITATION.cff). Released under the [MIT License](LICENSE).

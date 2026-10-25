@@ -13,7 +13,7 @@ The workspace implements two decoupled, seeded and provenance-tracked scientific
 │                                ARCHITECTURAL COMPONENT MAP                                  │
 ├──────────────────────────────────────────────────────────────┬──────────────────────────────┤
 │               BRIGHTFIELD SPHEROID PIPELINE                  │          IF PIPELINE         │
-│                   (spheroid_pipeline_v2)                     │     (spheroid_if_sweep)      │
+│               (src/matrix_mat/brightfield)                   │  (src/matrix_mat/if_density) │
 ├──────────────────────────────────────────────────────────────┼──────────────────────────────┤
 │ 1. Preflight Auditor (preflight.py)                          │ 1. Preflight Auditor         │
 │ 2. Optical Scale Extractor (scale_extractor.py)              │ 2. Channel Pairing Engine    │
@@ -34,12 +34,12 @@ The workspace implements two decoupled, seeded and provenance-tracked scientific
 ### Core Tenets:
 1. **Zero Silent Drops**: No candidate instance is ever discarded silently. Every single detected object is assigned a status (`PASS`, `REVIEW`, `FAIL`) and recorded in `objects.csv` alongside its geometric metrics and rejection rationale (`qc_reasons`).
 2. **Reproducibility**: With the classical backend on CPU, identical inputs and configuration give bit-for-bit identical outputs. cpsam inference on GPU/MPS is reproducible within a small tolerance (identical counts, area within 0.5%), not bitwise. All stochastic steps (bootstrap, permutation tests) use `config.random_seed`.
-3. **Lossless Disk Caching**: Deep learning model evaluations are saved to disk as lossless 16-bit PNG masks (`masks/<image_id>.png`). Subsequent runs read directly from cache unless `--no-cache` or `force_recompute` is explicitly set.
+3. **Content-addressed cache**: Segmentation masks (and their QC flags) are stored as 16-bit PNGs under `$MATRIX_MAT_CACHE_DIR`, keyed by image bytes + segmentation parameters + model SHA-256 + package version. Failed segmentations are never cached. `--no-cache` forces recomputation.
 4. **Hardware Portability**: Full support for Apple Silicon MPS (`torch.backends.mps`), NVIDIA CUDA (`torch.cuda`), and automated CPU fallback without platform-specific code branching.
 
 ---
 
-## 2. Brightfield Pipeline (`spheroid_pipeline_v2`)
+## 2. Brightfield Pipeline (`matrix_mat.brightfield`)
 
 ### 2.1 Execution Graph & Data Flow
 ```
@@ -157,7 +157,7 @@ To prevent segmenting bright hydrogel artifacts, phase halos, or bubbles:
 
 ---
 
-## 3. Immunofluorescence Pipeline (`spheroid_if_sweep`)
+## 3. Immunofluorescence Pipeline (`matrix_mat.if_density`)
 
 ### 3.1 Execution Graph & Data Flow
 ```
@@ -193,7 +193,7 @@ The production pipeline uses the frozen configuration validated in Phase 4/5:
 - **Preprocessing**: Rolling-ball background subtraction ($R = 3.5 \times r_{\text{nuc}} \approx 41\,\mu\mathrm{m}$) + Dynamic range percentile clipping $[1.0\%, 99.8\%]$.
 - **Inference**: Cellpose-SAM `cpsam_v2` with `flow_threshold=0.4`, `cellprob_threshold=0.0`.
 - **Postprocessing**:
-  - Clump splitting: Triggered on masks $> 2.0 \times \text{median\_volume}$. Computes $h$-maxima intensity peaks ($h=10.0$) and applies marker-controlled seeded watershed.
+  - Clump splitting: Triggered on masks $> 2.0 \times$ the configured `reference_vol_um3`. Computes $h$-maxima intensity peaks ($h=10.0$) and applies marker-controlled seeded watershed.
   - Border clearance: Nuclei within $5.85\,\mu\mathrm{m}$ (1 nuclear radius) of the image border are excluded from density calculations (`excluded_border=True`) to remove boundary truncation distortion.
 
 ---
@@ -201,32 +201,18 @@ The production pipeline uses the frozen configuration validated in Phase 4/5:
 ## 4. Extension Guidelines for Maintainers
 
 ### How to Add a New Segmentation Backend
-To add a new backend (e.g. StarDist or SAM-2):
-1. Implement the segmenter method in `spheroid_pipeline_v2/segment.py`:
-   ```python
-   def _segment_stardist(self, image: np.ndarray, pixel_size_um: float) -> np.ndarray:
-       # Return labeled 2D int32 numpy array (0=background, 1..N=instances)
-   ```
-2. Add the backend name to `SegmentationConfig` in `spheroid_pipeline_v2/config.py`.
-3. Wire the fallback trigger in `SegmentationHierarchy.segment()` and log decisions to `DecisionsLogger`.
+1. Implement a `BaseSegmenter` subclass in `src/matrix_mat/brightfield/segment.py` whose `segment(image, pixel_size_um)` returns `(labels_int32, meta)`, where `meta` has `backend`, `model_id`, `diameter_used` and `status` (`"success" | "empty" | "failed"`). Raise on model-initialisation errors; return `status="failed"` only for per-image inference errors.
+2. Add the name to `SUPPORTED_BACKENDS` (segment.py) and the validation in `SegmentationConfig.__post_init__` (config.py), plus the `--backend` choices in `src/matrix_mat/cli.py`.
+3. Add tests with a stub in `tests/unit/test_segment_policy.py` (strict policy, cache round trip, backend recorded on objects).
 
-### How to Add a New Statistical Hypothesis Test
-1. Add the calculation to `compute_condition_statistics()` in `spheroid_pipeline_v2/stats.py`.
-2. Ensure it records degrees of freedom, effect size, and $p$-value in `condition_summary.csv`.
-3. Add a corresponding test case to `spheroid_pipeline_v2/tests/test_m3_pair_stats.py`.
+### How to Add a New Statistical Test
+1. Implement it in `src/matrix_mat/core/stats.py` (pure functions, gel as the cluster unit).
+2. Call it from `brightfield/stats.py` or `reporting/summaries.py` and write its columns into the summary CSV. Reporting modules must not compute statistics (enforced by `tests/unit/test_reporting_no_stats.py`).
+3. Add unit tests with an independent oracle (e.g. `statsmodels` or brute-force enumeration) in `tests/unit/`.
 
-### How to Run the Automated Test Suites
-Always run the full suite before committing:
+### How to Run the Tests
 ```bash
-# Brightfield Tier 1-3 E2E Tests
-python spheroid_pipeline_v2/tests/run_e2e_tests.py --tier1 --tier2 --tier3
-
-# Synthetic Smoke Test
-python run_pipeline.py --smoke-test
-
-# IF Unit Tests
-python -m unittest tests/test_if_sweep.py
-
-# Preflight & Provenance Unit Tests
-python -m unittest tests/test_preflight_and_metadata.py
+pytest -m "not slow and not dl and not realdata"   # fast suite, as in CI
+pytest -m dl                                       # needs torch, cellpose and the weights
+pytest --update-golden tests/regression            # after an intended output change; review the diff
 ```

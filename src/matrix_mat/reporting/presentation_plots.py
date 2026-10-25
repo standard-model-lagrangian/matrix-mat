@@ -253,20 +253,16 @@ def generate_all_presentation_figures(
             jitter = plot_rng.normal(0, 0.07, size=len(fcs))
             ax1.scatter(positions[i] + jitter, fcs, color="#2c3e50", alpha=0.75, s=45, zorder=4, edgecolor="white", linewidth=0.5)
             ax1.scatter(positions[i], np.mean(fcs), marker="D", color="#f1c40f", s=65, zorder=5, edgecolor="#2c3e50")
-
-            if condition_df is not None and "condition" in condition_df.columns and "significance" in condition_df.columns:
-                cond_rows = condition_df[condition_df["condition"] == c]
-                sig_a = str(cond_rows.iloc[0].get("significance", "ns")) if not cond_rows.empty else "ns"
-            else:
-                sig_a = "ns"
-            ax1.text(positions[i], max(fcs) * 1.15, sig_a, ha="center", va="bottom", fontsize=10, fontweight="bold", color="#2c3e50")
+            # No test is computed for pooled well biomass, so only n is annotated here
+            # (condition_summary p-values refer to per-spheroid fold change, a different quantity).
+            ax1.text(positions[i], max(fcs) * 1.15, f"n={len(fcs)}", ha="center", va="bottom", fontsize=9, color="#2c3e50")
 
     ax1.axhline(1.0, color="#c0392b", linestyle="--", linewidth=1.5, alpha=0.8, label="No Growth (FC=1.0)")
     ax1.set_yscale("log")
     ax1.set_xticks(positions)
     ax1.set_xticklabels(cond_order, fontweight="bold", fontsize=11)
     ax1.set_ylabel("Total Pooled Biomass Fold Change\n($\\Sigma V_{t7} / \\Sigma V_{t0}$) [Log Scale]", fontsize=11, fontweight="bold")
-    ax1.set_title("A. Total Pooled Well Biomass Fold Change\n(Replicates vs $H_0: \\mathrm{FC}=1.0$)", fontsize=12, fontweight="bold", pad=10)
+    ax1.set_title("A. Total Pooled Well Biomass Fold Change\n(descriptive; n = wells)", fontsize=12, fontweight="bold", pad=10)
     ax1.grid(True, which="both", linestyle=":", alpha=0.4, axis="y")
     ax1.legend(loc="upper left", frameon=True, fontsize=9.5)
 

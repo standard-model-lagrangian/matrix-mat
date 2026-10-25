@@ -38,6 +38,8 @@ def test_no_test_writes_outside_tmp():
 def test_no_large_files_tracked():
     """Asserts that no tracked files in git exceed 1000 KB (1 MB)."""
     repo_root = Path(__file__).resolve().parent.parent
+    if not (repo_root / ".git").exists():
+        pytest.skip("not a git checkout (e.g. source archive)")
     result = subprocess.run(
         ["git", "ls-files"],
         cwd=repo_root,

@@ -33,6 +33,14 @@ Every fix has a test that failed first.
 - CI gates added: ruff (syntax/undefined names; 11 undefined names fixed), mypy on `core/`, coverage ≥ 60% overall and ≥ 80% on `core/`.
 - Tests no longer depend on the working directory. The repository-pollution guard now covers the whole session. DL tests skip cleanly without torch.
 
+### Fixed — CLI and docs (follow-up)
+- `matrix-mat if sweep` ignored `--runs-dir`, `--data-dir` and `--sample`; they are now passed through, and the command exits non-zero on failure.
+- IF `compare*` commands defaulted to `./runs` while `if sweep` writes to `${OUTPUT_ROOT}/runs`; they now share one default. `compare-prepost --biological` now draws figures for the PP11 run instead of the runs folder.
+- Brightfield figure 1A showed stars from an unrelated test (per-spheroid fold change) on pooled well biomass; it is now descriptive (n wells).
+- `requirements-lock.txt` now also locks the `dev` extra, so the documented install gives a complete, hash-verified environment.
+- README, beginner, maintainer, visualization and troubleshooting guides rewritten for the `matrix-mat` CLI. Commands in the docs are parsed by tests.
+- IF golden test: integer columns are compared exactly, float columns to within 0.5% (OpenCV 8-bit rounding differs between x86 and ARM).
+
 ### Validation status
 - The manual-count validation is suspended: `tests/data/if_manual_counts.csv` has no provenance and matches pipeline output to within 0–4 nuclei (see `tests/data/README.md`). Unsupported claims were removed from `docs/VALIDATION.md`.
 
