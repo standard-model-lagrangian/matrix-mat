@@ -1,0 +1,94 @@
+{
+  "audit_metadata": {
+    "timestamp": "2026-09-24T12:22:00+01:00",
+    "question": "Investigate whether we have a handle on the pore size of the peptide ekg gels",
+    "direct_empirical_measurements_present": false,
+    "direct_measurement_techniques_available_in_repo": [
+      "None (No cryo-SEM, SEM, AFM, SAXS, SANS, FRAP, or permeation data in workspace)"
+    ],
+    "semi_empirical_handle": "Strongly bounded via polymer physics and continuum mechanics"
+  },
+  "formulations_evaluated": {
+    "013_EKG_neutral": {
+      "peptide_sequence": "Charge 0, n=1, m=3, (EKG)3",
+      "net_charge": 0,
+      "MW_Da": 1212.27,
+      "regime": "DMA (Mature gel, unconfined compression)",
+      "modulus_E_kPa": 3.368,
+      "modulus_G_Pa": 1122.7,
+      "swelling_Q_48h": 1.922,
+      "swollen_polymer_vol_frac_phi2s": 0.0389,
+      "crosslink_density_nu_e_mM": 0.4529,
+      "effective_conversion_alpha_pct": 6.04,
+      "effective_Mc_kDa": 98.8,
+      "mesh_size_nm": {
+        "affine_rubber_elasticity": 15.42,
+        "phantom_network_f8": 16.97,
+        "flory_rehner_canal_peppas": 17.06
+      },
+      "solute_permeability_cutoff": {
+        "glucose_D_over_D0": 0.815,
+        "lysozyme_D_over_D0": 0.29,
+        "BSA_D_over_D0": 0.066,
+        "IgG_D_over_D0": 0.007,
+        "dextran_70k_D_over_D0": 0.004,
+        "dextran_150k_cutoff": "Excluded (D/D0 -> 0)"
+      }
+    },
+    "X_213_EKG_positive": {
+      "peptide_sequence": "Charge +2, n=1, m=3, (EKG)3",
+      "net_charge": 2,
+      "MW_Da": 1468.62,
+      "regime": "DMA (Mature gel, unconfined compression)",
+      "modulus_E_kPa": 9.477,
+      "modulus_G_Pa": 3159.0,
+      "swelling_Q_48h_est": 1.582,
+      "swollen_polymer_vol_frac_phi2s": 0.0472,
+      "crosslink_density_nu_e_mM": 1.2743,
+      "effective_conversion_alpha_pct": 16.99,
+      "effective_Mc_kDa": 42.6,
+      "mesh_size_nm": {
+        "affine_rubber_elasticity": 10.92,
+        "phantom_network_f8": 12.02,
+        "flory_rehner_canal_peppas": 15.99
+      },
+      "solute_permeability_cutoff": {
+        "glucose_D_over_D0": 0.745,
+        "lysozyme_D_over_D0": 0.149,
+        "BSA_D_over_D0": 0.013,
+        "IgG_D_over_D0": "Excluded (rp = 5.46 nm <= rs = 5.5 nm)",
+        "dextran_70k_D_over_D0": "Excluded (D/D0 -> 0)"
+      }
+    },
+    "X_rheology_early_gelation": {
+      "peptide_sequence": "Charge +2, n=1, m=3, (EKG)3",
+      "regime": "Rheology (4 C, t-sweep endpoint/plateau, ~15-20 min)",
+      "modulus_G_prime_Pa": 480.0,
+      "crosslink_density_nu_e_mM": 0.2083,
+      "effective_conversion_alpha_pct": 2.78,
+      "mesh_size_nm": {
+        "affine_rubber_elasticity": 19.98,
+        "phantom_network_f8": 21.99
+      }
+    }
+  },
+  "defect_dilation_analysis": {
+    "ideal_defect_free_mesh_size_nm": 6.05,
+    "observed_mature_mesh_size_nm": "10.9 - 15.4 nm",
+    "dilation_factor": "1.8x - 2.5x expansion due to primary loop defects and low percolation conversion",
+    "early_gelation_dilation_factor": "3.3x expansion (xi ~ 20 nm)"
+  },
+  "cellular_implications": {
+    "single_cell_diameter_um": 15.0,
+    "spheroid_diameter_um": "100 - 500",
+    "mesh_to_cell_ratio": "1 : 1,000",
+    "migration_mechanism": "Sterically locked; no ameboid migration through mesh",
+    "growth_mechanism": "Elastic cavity expansion against confining stress sigma ~ E"
+  },
+  "experimental_validation_roadmap": [
+    "1. FITC-Dextran FRAP / solute release assay (4 kDa to 500 kDa)",
+    "2. High-Pressure Freezing Cryo-SEM or Cryo-TEM",
+    "3. Small-Angle X-ray Scattering (SAXS) in native PBS",
+    "4. Osmotic Deswelling with PEG solutions to measure Flory-Huggins chi"
+  ]
+}

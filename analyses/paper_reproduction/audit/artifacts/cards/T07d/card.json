@@ -1,0 +1,66 @@
+{
+  "task_id": "T07d",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 1, Section 2.2 (Discovery of Simultaneously High-Stiffness and Fast-Relaxing Fibrous Hydrogels)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "The high-performance utopian design space combining high compressive modulus (E > 5.0 kPa) and fast stress relaxation (sigma_100 > 40%) is physically populated and discoverable within the 5D formulation box.",
+    "primary_metric": "Empirical hit count in 168 formulations and posterior probability P(E > 5 kPa and sigma_100 > 40%) across the feasible formulation box.",
+    "decision_rule": "SUPPORTED if empirical hits >= 1 and mean feasible posterior probability > 5%; WEAKENED if empirical hits == 0 and posterior probability < 1%; CONTRADICTED if posterior probability is identically 0.",
+    "parameters": {
+      "modulus_threshold_kpa": 5.0,
+      "stress_relaxation_threshold_pct": 40.0,
+      "n_mc_samples": 10000
+    }
+  },
+  "sensitivity_ranges": {
+    "modulus_thresholds": [
+      3.0,
+      5.0,
+      7.0
+    ],
+    "sr_thresholds": [
+      30.0,
+      40.0,
+      50.0
+    ]
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_pareto_audit.pdf",
+        "sha256": "0b023cc1fa7dd8f0a629602acb7a9eb35318dda035b8e3fbe3ed4c869b918208"
+      },
+      {
+        "path": "report/figures/fig_pareto_audit.png",
+        "sha256": "3d4d69821a9131b8510709105eb0a51bbcbf0cecb191f18300d0761003256e3d"
+      }
+    ],
+    "script": {
+      "path": "src/audit/pareto.py",
+      "sha256": "f404c395004b7041dda83e47eb8e39574188daf585d0e63ba3fb541d9996b6df"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 1.9832,
+    "timestamp_utc": "2026-09-19T09:13:55.548555+00:00",
+    "seed": 705083881,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "empirical_dual_hits_in_168_points": 0,
+    "max_stress_relaxation_for_modulus_gt_5kpa": 34.5,
+    "max_modulus_for_stress_relaxation_gt_40pct": 1.838,
+    "posterior_probability_mean_pct": 10.507,
+    "posterior_probability_max_pct": 36.43,
+    "feasible_volume_tested_samples": 4601
+  },
+  "summary": "Audit of the dual high-performance region (E > 5.0 kPa and sigma_100 > 40%) reveals an empty utopian space (0 hits out of 168 experimental formulations). Across the entire feasible 5D formulation box, the mean GP posterior probability of satisfying both criteria is only 10.507% (max = 36.4%). Gels with E > 5 kPa achieve at most 34.5% relaxation, while gels with relaxation > 40% achieve at most 1.84 kPa modulus, confirming a strict physical trade-off rather than synergistic discovery."
+}

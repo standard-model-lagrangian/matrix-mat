@@ -1,0 +1,193 @@
+{
+  "task_id": "T01",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, Table 1, Figure S9",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Prospective one-step-ahead GP surrogate predictions achieve predictive RMSE matching or exceeding target tolerance windows (\u00b10.13--0.15 kPa) in the soft regime (E < 3 kPa).",
+    "primary_metric": "Prospective soft-regime RMSE divided by target tolerance (RMSE_soft / 0.15 kPa) <= 1.0.",
+    "decision_rule": "SUPPORTED if RMSE_soft / 0.15 <= 1.0 across configurations; WEAKENED if RMSE_soft / 0.15 > 1.0 (prediction error exceeds target window) or 95% coverage < 80%; CONTRADICTED if RMSE exceeds prior standard deviation.",
+    "parameters": {
+      "soft_regime_threshold_kpa": 3.0,
+      "target_tolerance_modulus_kpa": 0.15,
+      "nominal_coverage_pct": 95.0
+    }
+  },
+  "sensitivity_ranges": {
+    "kernel": [
+      "matern52",
+      "rbf"
+    ],
+    "ard": [
+      true,
+      false
+    ],
+    "noise_model": [
+      "learned",
+      "replicate"
+    ],
+    "tested_configurations": [
+      "matern52_ardTrue_learned",
+      "matern52_ardTrue_replicate",
+      "matern52_ardFalse_learned",
+      "matern52_ardFalse_replicate",
+      "rbf_ardTrue_learned",
+      "rbf_ardTrue_replicate",
+      "rbf_ardFalse_learned",
+      "rbf_ardFalse_replicate"
+    ]
+  },
+  "bias_direction": "conservative",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      },
+      {
+        "path": "artifacts/canonical/prior.parquet",
+        "sha256": "ddcf4910feac2607b95528cf0053a707d862190f8308d848cd2f76d9e8fe20d1"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_soft_regime.pdf",
+        "sha256": "7077cdc5879718c7efcb9364fc4676ae772a87e1066ba7f4647b53d3b6be0cd8"
+      },
+      {
+        "path": "report/figures/fig_soft_regime.png",
+        "sha256": "56f85bdd0750fd282c56df31e4e2111fc64815ed2f1477a6a9f77f981c718b67"
+      }
+    ],
+    "script": {
+      "path": "src/audit/prospective.py",
+      "sha256": "9c854e316ff4ad4ae1979269f77db00dbc3a550e9f652f52881bcfe676808df5"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 4.1805,
+    "timestamp_utc": "2026-09-19T09:17:51.688506+00:00",
+    "seed": 1442961952,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "baseline_config": "matern52_ardTrue_learned",
+    "overall_rmse_kpa": 2.656,
+    "overall_mae_kpa": 1.981,
+    "soft_regime_n_points": 48,
+    "soft_regime_rmse_kpa": 1.902,
+    "soft_regime_mae_kpa": 1.379,
+    "target_tolerance_kpa": 0.15,
+    "soft_regime_rmse_div_tolerance": 12.68,
+    "empirical_95_coverage_pct": 91.7,
+    "mean_standardized_residual": -0.6,
+    "std_standardized_residual": 1.688,
+    "sensitivity_grid": [
+      {
+        "config": "matern52_ardTrue_learned",
+        "kernel": "matern52",
+        "ard": true,
+        "noise_model": "learned",
+        "rmse_overall": 2.655804190881913,
+        "mae_overall": 1.9808282610829824,
+        "coverage_95": 0.79,
+        "rmse_soft": 1.9020528823374094,
+        "mae_soft": 1.3789914575891258,
+        "coverage_95_soft": 0.9166666666666666,
+        "rmse_div_tol_soft": 12.680352548916064
+      },
+      {
+        "config": "matern52_ardTrue_replicate",
+        "kernel": "matern52",
+        "ard": true,
+        "noise_model": "replicate",
+        "rmse_overall": 3.2036190840793464,
+        "mae_overall": 2.4449908473878774,
+        "coverage_95": 0.84,
+        "rmse_soft": 1.750160574699668,
+        "mae_soft": 1.4098119530965008,
+        "coverage_95_soft": 0.9375,
+        "rmse_div_tol_soft": 11.667737164664453
+      },
+      {
+        "config": "matern52_ardFalse_learned",
+        "kernel": "matern52",
+        "ard": false,
+        "noise_model": "learned",
+        "rmse_overall": 2.8420536599414747,
+        "mae_overall": 2.072919769145537,
+        "coverage_95": 0.8,
+        "rmse_soft": 2.2201111216825544,
+        "mae_soft": 1.4404270813325262,
+        "coverage_95_soft": 0.9375,
+        "rmse_div_tol_soft": 14.80074081121703
+      },
+      {
+        "config": "matern52_ardFalse_replicate",
+        "kernel": "matern52",
+        "ard": false,
+        "noise_model": "replicate",
+        "rmse_overall": 4.999974691130988,
+        "mae_overall": 4.2101668477267244,
+        "coverage_95": 0.84,
+        "rmse_soft": 3.3560149772748615,
+        "mae_soft": 3.236017092413206,
+        "coverage_95_soft": 1.0,
+        "rmse_div_tol_soft": 22.37343318183241
+      },
+      {
+        "config": "rbf_ardTrue_learned",
+        "kernel": "rbf",
+        "ard": true,
+        "noise_model": "learned",
+        "rmse_overall": 2.8978665874553307,
+        "mae_overall": 2.163039748773084,
+        "coverage_95": 0.72,
+        "rmse_soft": 2.4347518322499284,
+        "mae_soft": 1.61773869373073,
+        "coverage_95_soft": 0.8125,
+        "rmse_div_tol_soft": 16.23167888166619
+      },
+      {
+        "config": "rbf_ardTrue_replicate",
+        "kernel": "rbf",
+        "ard": true,
+        "noise_model": "replicate",
+        "rmse_overall": 4.190872058929004,
+        "mae_overall": 3.2388899801151,
+        "coverage_95": 0.82,
+        "rmse_soft": 2.9940273092692213,
+        "mae_soft": 2.231783511116722,
+        "coverage_95_soft": 0.9375,
+        "rmse_div_tol_soft": 19.96018206179481
+      },
+      {
+        "config": "rbf_ardFalse_learned",
+        "kernel": "rbf",
+        "ard": false,
+        "noise_model": "learned",
+        "rmse_overall": 2.7729327002820887,
+        "mae_overall": 2.0530682071930424,
+        "coverage_95": 0.76,
+        "rmse_soft": 1.979158302152283,
+        "mae_soft": 1.3632126729419862,
+        "coverage_95_soft": 0.9375,
+        "rmse_div_tol_soft": 13.19438868101522
+      },
+      {
+        "config": "rbf_ardFalse_replicate",
+        "kernel": "rbf",
+        "ard": false,
+        "noise_model": "replicate",
+        "rmse_overall": 5.167891526059355,
+        "mae_overall": 4.395010866923436,
+        "coverage_95": 0.85,
+        "rmse_soft": 3.5099443913602664,
+        "mae_soft": 3.403625283938027,
+        "coverage_95_soft": 1.0,
+        "rmse_div_tol_soft": 23.39962927573511
+      }
+    ]
+  },
+  "summary": "Prospective sequential 1-step GP evaluation demonstrates that prospective RMSE in the soft regime (E < 3 kPa) is 1.90 kPa, which is 12.7x larger than the target tolerance (\u00b10.15 kPa). While overall GP predictions track general stiffening trends across campaigns, the surrogate uncertainty significantly exceeds target tolerances in the soft regime."
+}

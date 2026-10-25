@@ -1,0 +1,140 @@
+import shutil
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import pytest
+from skimage import measure
+
+from matrix_mat.if_density.sweep import run_sweep
+
+
+class StubIFEngine:
+    """Deterministic CPU stub segmenter for IF synthetic testing."""
+    def __init__(self, random_seed: int = 42):
+        self.random_seed = random_seed
+
+    def segment_image(self, image: np.ndarray, params: dict, image_id: str = ""):
+        # Simple intensity thresholding producing clean labeled masks
+        binary = (image > 100)
+        labeled = measure.label(binary).astype(np.int32)
+        return labeled, "2D"
+
+
+def test_synthetic_if_matches_golden(tmp_path, pytestconfig):
+    repo_root = Path(__file__).resolve().parents[2]
+    data_dir = repo_root / "tests/fixtures/synthetic_if_dataset"
+    golden_dir = repo_root / "tests/regression/golden_if"
+
+    config_content = f"""
+data_dir: "{data_dir}"
+runs_dir: "{tmp_path}/runs"
+allow_unpaired: true
+overwrite: true
+random_seed: 42
+default_pixel_size_um: 0.505049
+
+model:
+  pretrained_model: "models/cpsam_v2"
+  model_type: "cpsam"
+  use_gpu: false
+
+combos:
+  - slug: "001_A_baseline"
+    name: "A_baseline"
+    description: "Synthetic test baseline"
+    flow_threshold: 0.4
+    cellprob_threshold: 0.0
+    diameter: null
+    min_size: 5
+    stitch_threshold: 0.0
+    do_3D: false
+    preprocessing:
+      enabled: false
+    postprocessing:
+      enabled: true
+      size_gate:
+        enabled: true
+        reference_vol_um3: 500.0
+        min_vol_um3: 50.0
+        max_vol_um3: 2000.0
+      splitting:
+        enabled: false
+      border_exclusion:
+        enabled: false
+
+preprocessing:
+  enabled: false
+
+postprocessing:
+  enabled: true
+  size_gate:
+    enabled: true
+    reference_vol_um3: 500.0
+    min_vol_um3: 50.0
+    max_vol_um3: 2000.0
+  splitting:
+    enabled: false
+  border_exclusion:
+    enabled: false
+
+qc:
+  snr_min: 1.5
+  min_nuclear_vol_um3: 50.0
+  max_nuclear_vol_um3: 2000.0
+  border_margin_px: 2
+  edge_heavy_fraction: 0.25
+  saturation_fraction_max: 0.005
+  blur_abs_threshold: 50.0
+  duplicate_iou_threshold: 0.50
+  outlier_iqr_factor: 1.5
+
+features:
+  spheroid_extent_method: "actin_threshold"
+  actin_background_percentile: 50.0
+"""
+    config_file = tmp_path / "if_test_config.yaml"
+    config_file.write_text(config_content, encoding="utf-8")
+
+    stub_engine = StubIFEngine()
+    result = run_sweep(config_path=config_file, engine=stub_engine)
+    assert result.get("status") == "SUCCESS"
+
+    run_dir = tmp_path / "runs" / "001_A_baseline"
+    target_files = {
+        "qc_flags.csv": run_dir / "qc" / "qc_flags.csv",
+        "objects.csv": run_dir / "features" / "objects.csv",
+        "per_image.csv": run_dir / "features" / "per_image.csv",
+        "summary_by_material.csv": run_dir / "summary" / "summary_by_material.csv",
+    }
+
+    update_golden = pytestconfig.getoption("--update-golden", default=False)
+
+    for fname, actual_path in target_files.items():
+        golden_path = golden_dir / fname
+        assert actual_path.exists(), f"Output file missing: {actual_path}"
+
+        if update_golden:
+            shutil.copyfile(actual_path, golden_path)
+        assert golden_path.exists(), f"Golden file missing: {golden_path} (regenerate with --update-golden)"
+
+        df_actual = pd.read_csv(actual_path)
+        df_golden = pd.read_csv(golden_path)
+
+        assert list(df_actual.columns) == list(df_golden.columns), (
+            f"Columns mismatch for {fname}:\n"
+            f"Actual ({len(df_actual.columns)}): {list(df_actual.columns)}\n"
+            f"Golden ({len(df_golden.columns)}): {list(df_golden.columns)}"
+        )
+        # Integer columns (counts, flags) must match exactly. Float measurements get 0.5%: the actin
+        # cross-section uses OpenCV's 8-bit Gaussian blur, whose fixed-point rounding differs between
+        # x86 (CI) and ARM builds by a pixel or two of spheroid area (~0.1% in nuclei_per_mm2).
+        float_cols = df_golden.select_dtypes("float").columns
+        other_cols = [c for c in df_golden.columns if c not in float_cols]
+        pd.testing.assert_frame_equal(df_actual[other_cols], df_golden[other_cols], check_exact=True)
+        pd.testing.assert_frame_equal(
+            df_actual[float_cols],
+            df_golden[float_cols],
+            check_exact=False,
+            rtol=5e-3,
+            atol=1e-8,
+        )

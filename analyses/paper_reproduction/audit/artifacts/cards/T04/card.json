@@ -1,0 +1,108 @@
+{
+  "task_id": "T04",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.1, SI Section 1, Table S2",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "The 43-row prior dataset from Table S2 provides high-fidelity physical information without severe imputation noise or parameter space degeneracy for surrogate learning.",
+    "primary_metric": "Propagated imputation RMSE divided by soft-regime tolerance window (RMSE / 0.15 kPa) <= 1.0, and ARD lengthscales avoid boundary pegging.",
+    "decision_rule": "SUPPORTED if imputation RMSE <= 0.15 kPa and ARD lengthscales are finite/well-conditioned; WEAKENED if imputation RMSE > 3x tolerance window (>= 0.45 kPa) or severe ARD lengthscale divergence occurs; CONTRADICTED if prior exhibits near-zero feature variance across major components.",
+    "parameters": {
+      "nominal_imputation_r2": 0.8,
+      "target_tolerance_modulus_kpa": 0.15
+    }
+  },
+  "sensitivity_ranges": {
+    "nominal_r2_range": [
+      0.7,
+      0.8,
+      0.9
+    ],
+    "implied_rmse_range_kpa": [
+      1.749,
+      1.428,
+      1.01
+    ],
+    "lap_concentration_wt_pct": [
+      0.01,
+      0.05,
+      0.1,
+      0.2
+    ]
+  },
+  "bias_direction": "conservative",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/prior.parquet",
+        "sha256": "ddcf4910feac2607b95528cf0053a707d862190f8308d848cd2f76d9e8fe20d1"
+      },
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      }
+    ],
+    "outputs": [],
+    "script": {
+      "path": "src/audit/imputation.py",
+      "sha256": "21b7b5efcc38b9cb0d7bfddf227721bbed294ff42fa250f0ac3477fd797ec8fc"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 0.4807,
+    "timestamp_utc": "2026-09-19T09:17:34.637256+00:00",
+    "seed": 1379629476,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "prior_row_count": 43,
+    "missing_prior_index": 2,
+    "lap_constant_mode_val": 0.1,
+    "lap_constant_mode_count": 35,
+    "lap_constant_pct": 81.4,
+    "exposure_time_restricted_count": 29,
+    "exposure_time_restricted_pct": 67.4,
+    "prior_modulus_mean_kpa": 4.826,
+    "prior_modulus_std_kpa": 3.194,
+    "propagated_imputation_rmse_kpa": 1.428,
+    "target_tolerance_kpa": 0.15,
+    "error_to_tolerance_ratio": 9.52,
+    "lengthscale_comparison": {
+      "exposure_time": {
+        "prior_modulus_ls": 0.1037,
+        "cl_modulus_ls": 0.112,
+        "prior_sr_ls": 0.0261,
+        "cl_sr_ls": 0.3161
+      },
+      "gelma_l": {
+        "prior_modulus_ls": 48.3164,
+        "cl_modulus_ls": 1.0059,
+        "prior_sr_ls": 0.5822,
+        "cl_sr_ls": 0.8712
+      },
+      "gelma_h": {
+        "prior_modulus_ls": 2.0135,
+        "cl_modulus_ls": 0.287,
+        "prior_sr_ls": 29.5264,
+        "cl_sr_ls": 0.7526
+      },
+      "acnc": {
+        "prior_modulus_ls": 0.0,
+        "cl_modulus_ls": 0.832,
+        "prior_sr_ls": 0.3394,
+        "cl_sr_ls": 0.6537
+      },
+      "lap": {
+        "prior_modulus_ls": 1.9825,
+        "cl_modulus_ls": 1.4741,
+        "prior_sr_ls": 0.0,
+        "cl_sr_ls": 2.1346
+      }
+    },
+    "divergent_prior_features": [
+      "gelma_l",
+      "gelma_h"
+    ]
+  },
+  "summary": "Audit of Table S2 prior data reveals two critical pathologies: (1) Modulus E was imputed via Gradient Boosting with nominal R^2=0.80, propagating an RMSE of ~1.43 kPa, which is 9.5x larger than the soft-regime target tolerance (\u00b10.15 kPa). (2) LAP is identically 0.10 wt.% in 81.4% of prior rows and exposure times are restricted to 30/90 s in 67.4% of rows, causing ARD lengthscale divergence on GelMA-L (pegs to upper bound >10.0) and severe parameter degeneracy, distorting initial surrogate priors."
+}

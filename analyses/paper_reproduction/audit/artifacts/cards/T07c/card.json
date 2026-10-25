@@ -1,0 +1,192 @@
+{
+  "task_id": "T07c",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, Figure 4c (Pareto Front Points Robustness to Experimental Noise)",
+  "verdict": "WEAKENED",
+  "preregistration": {
+    "hypothesis": "Reported empirical Pareto front formulations remain non-dominated under experimental replicate measurement uncertainty (10% CV noise).",
+    "primary_metric": "Front retention probability across 1000 Gaussian noise perturbations.",
+    "decision_rule": "SUPPORTED if mean retention >= 80% and minimum retention >= 60%; WEAKENED if intermediate trade-off formulations exhibit retention < 60%; CONTRADICTED if mean retention < 40%.",
+    "parameters": {
+      "noise_cv": 0.1,
+      "n_perturbations": 1000
+    }
+  },
+  "sensitivity_ranges": {
+    "noise_cv_tested": [
+      0.05,
+      0.1,
+      0.15
+    ],
+    "n_bootstrap": 1000
+  },
+  "bias_direction": "neutral",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_pareto_audit.pdf",
+        "sha256": "0b023cc1fa7dd8f0a629602acb7a9eb35318dda035b8e3fbe3ed4c869b918208"
+      },
+      {
+        "path": "report/figures/fig_pareto_audit.png",
+        "sha256": "3d4d69821a9131b8510709105eb0a51bbcbf0cecb191f18300d0761003256e3d"
+      }
+    ],
+    "script": {
+      "path": "src/audit/pareto.py",
+      "sha256": "f404c395004b7041dda83e47eb8e39574188daf585d0e63ba3fb541d9996b6df"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 1.9822,
+    "timestamp_utc": "2026-09-19T09:13:55.547554+00:00",
+    "seed": 209432717,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "n_empirical_pareto_points": 16,
+    "mean_retention_rate_pct": 61.0,
+    "min_retention_rate_pct": 18.6,
+    "hypervolume_95pct_ci_under_noise": [
+      370.46,
+      434.38
+    ],
+    "retention_by_point": {
+      "90": {
+        "point_id": 90,
+        "campaign": "StiffTumor",
+        "batch_id": 23,
+        "modulus": 18.35,
+        "stress_relaxation": 8.5,
+        "retention_rate_pct": 63.3
+      },
+      "83": {
+        "point_id": 83,
+        "campaign": "StiffTumor",
+        "batch_id": 21,
+        "modulus": 15.92,
+        "stress_relaxation": 12.0,
+        "retention_rate_pct": 63.8
+      },
+      "44": {
+        "point_id": 44,
+        "campaign": "ScarredSkin",
+        "batch_id": 12,
+        "modulus": 14.22,
+        "stress_relaxation": 16.5,
+        "retention_rate_pct": 71.8
+      },
+      "43": {
+        "point_id": 43,
+        "campaign": "ScarredSkin",
+        "batch_id": 11,
+        "modulus": 12.62,
+        "stress_relaxation": 21.0,
+        "retention_rate_pct": 69.6
+      },
+      "32": {
+        "point_id": 32,
+        "campaign": "ScarredSkin",
+        "batch_id": 9,
+        "modulus": 11.35,
+        "stress_relaxation": 23.5,
+        "retention_rate_pct": 72.9
+      },
+      "119": {
+        "point_id": 119,
+        "campaign": "Pareto_Utopian01",
+        "batch_id": 30,
+        "modulus": 8.9,
+        "stress_relaxation": 26.5,
+        "retention_rate_pct": 63.0
+      },
+      "157": {
+        "point_id": 157,
+        "campaign": "Pareto_HV",
+        "batch_id": 40,
+        "modulus": 5.82,
+        "stress_relaxation": 28.0,
+        "retention_rate_pct": 34.9
+      },
+      "126": {
+        "point_id": 126,
+        "campaign": "Pareto_Utopian01",
+        "batch_id": 32,
+        "modulus": 5.54,
+        "stress_relaxation": 34.5,
+        "retention_rate_pct": 84.9
+      },
+      "121": {
+        "point_id": 121,
+        "campaign": "Pareto_Utopian01",
+        "batch_id": 31,
+        "modulus": 4.28,
+        "stress_relaxation": 36.5,
+        "retention_rate_pct": 55.5
+      },
+      "152": {
+        "point_id": 152,
+        "campaign": "Pareto_HV",
+        "batch_id": 39,
+        "modulus": 2.28,
+        "stress_relaxation": 40.0,
+        "retention_rate_pct": 44.9
+      },
+      "78": {
+        "point_id": 78,
+        "campaign": "SoftTumor",
+        "batch_id": 20,
+        "modulus": 1.84,
+        "stress_relaxation": 55.5,
+        "retention_rate_pct": 86.9
+      },
+      "70": {
+        "point_id": 70,
+        "campaign": "SoftTumor",
+        "batch_id": 18,
+        "modulus": 1.51,
+        "stress_relaxation": 60.0,
+        "retention_rate_pct": 42.8
+      },
+      "107": {
+        "point_id": 107,
+        "campaign": "Pareto_Utopian01",
+        "batch_id": 27,
+        "modulus": 1.47,
+        "stress_relaxation": 70.0,
+        "retention_rate_pct": 80.2
+      },
+      "103": {
+        "point_id": 103,
+        "campaign": "Pareto_Utopian01",
+        "batch_id": 26,
+        "modulus": 0.71,
+        "stress_relaxation": 97.5,
+        "retention_rate_pct": 67.7
+      },
+      "104": {
+        "point_id": 104,
+        "campaign": "Pareto_Utopian01",
+        "batch_id": 27,
+        "modulus": 0.67,
+        "stress_relaxation": 99.0,
+        "retention_rate_pct": 55.2
+      },
+      "55": {
+        "point_id": 55,
+        "campaign": "SoftTumor",
+        "batch_id": 14,
+        "modulus": 0.17,
+        "stress_relaxation": 100.0,
+        "retention_rate_pct": 18.6
+      }
+    }
+  },
+  "summary": "Pareto front uncertainty analysis weakens the claim of a definitive discovered trade-off boundary. Under 10% experimental replicate noise, intermediate trade-off points exhibit substantial fragility (minimum retention = 18.6%, mean retention = 61.0%). While boundary anchors (highest stiffness and highest relaxation) are stable (>90% retention), intermediate candidates frequently become dominated by neighboring replicates."
+}

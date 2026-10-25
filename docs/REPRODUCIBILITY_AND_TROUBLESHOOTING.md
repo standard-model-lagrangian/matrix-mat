@@ -28,15 +28,15 @@ To eliminate these failure modes, our pipelines enforce a strict **Reproducibili
                               │               AUDITABLE RUN METADATA & MANIFEST         │
                               │ • manifest.csv: File paths, shapes, SHA-256 checksums   │
                               │ • run_metadata.json: Git commit, packages, GPU, seed    │
-                              │ • DECISIONS.md: Every fallback decision logged in time  │
+                              │ • decisions.jsonl: per-run segmentation decisions       │
                               └────────────────────────────┬────────────────────────────┘
                                                            │
                                                            ▼
                               ┌─────────────────────────────────────────────────────────┐
-                              │                 DETERMINISTIC PROCESSING                │
+                              │                 SEEDED, AUDITABLE PROCESSING            │
                               │ • Fixed random seeds for bootstrap CIs & permutations   │
-                              │ • Zero silent drops: PASS / REVIEW / FAIL logged        │
-                              │ • Lossless 16-bit PNG disk caching                      │
+                              │ • No silent drops: PASS/REVIEW/FAIL/SEG_FAIL logged     │
+                              │ • Content-addressed 16-bit PNG mask cache               │
                               └─────────────────────────────────────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ Every single execution generates two self-documenting audit files in the output 
 Captures complete environment provenance and execution parameters:
 ```json
 {
-  "pipeline_name": "spheroid_pipeline_v2",
+  "pipeline_name": "matrix-mat",
   "timestamp_utc": "2026-09-09T14:28:09.123456+00:00",
   "wall_time_seconds": 14.82,
   "environment": {
@@ -128,20 +128,20 @@ When the pipeline encounters an unexpected or degraded scenario, it does not gue
    - EVOS 20x objective: `0.303763` $\mu\mathrm{m/pixel}$
 2. Re-run pipeline passing the explicit scale:
    ```bash
-   python run_pipeline.py --pixel-size 0.607527 --output-dir output_10x
+   matrix-mat bf run --pixel-size 0.607527 --output-dir output_10x
    ```
 
 ### Scenario B: Running on a Remote Cluster Without GPU
 **Symptom**: No GPU detected; execution is slow.
 **Solution**:
 The pipeline automatically falls back to CPU with thread optimization. For faster execution on CPU:
-- Use stratified subsampling first: `python run_pipeline.py --sample 12`.
-- When running the full plate, use `spheroid_brightfield.yaml` with cached masks enabled (`cache_dir: "masks"`). Once a mask is computed, re-runs take $<5$ seconds.
+- Use stratified subsampling first: `matrix-mat bf run --sample 12`.
+- Masks are cached under `$MATRIX_MAT_CACHE_DIR` (default `output/cache/masks`), keyed by image bytes, segmentation parameters, model hash and package version, so a re-run with unchanged settings skips segmentation. Use `--no-cache` to force recomputation.
 
 ### Scenario C: Outlier FOVs with Severe Focal Drift (Blurry)
 **Symptom**: In IF analysis, `flag_blurry=true` appears in `qc_flags.csv`.
 **Scientific Rationale**:
 In single-plane fluorescence microscopy, focal drift during acquisition places spheroids out of the depth of field. Deconvolution cannot restore missing high-frequency optical information.
 **Remediation**:
-- The pipeline flags these fields (`flag_blurry`) and provides clean-vs-all cohort comparisons (`fig_if_clean_vs_all_density.png`).
+- The pipeline flags fields whose raw nuclear-channel Laplacian variance is below `qc.blur_abs_threshold` (`flag_blurry`) and shows clean-vs-all densities side by side (`fig_if_clean_vs_all_density.png`, descriptive only).
 - For future acquisitions, configure hardware autofocus z-stacks.

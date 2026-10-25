@@ -1,0 +1,6 @@
+image_id,material,replicate,object_id,volume_um3,equivalent_diameter_um,sphericity,solidity,centroid_z_um,centroid_y_um,centroid_x_um,mean_actin_intensity,integrated_actin_intensity,normalized_radial_distance,edge_touching,excluded_border,flags
+SKOV3 Spheroid D7 Mor_Mat-Gel1-1,Mat,Gel1,SKOV3 Spheroid D7 Mor_Mat-Gel1-1_obj_0001,110.28,5.95,1.0,1.0,0.0,20.2,20.2,130.0,14170.0,0.404,False,False,debris
+SKOV3 Spheroid D7 Mor_Mat-Gel1-1,Mat,Gel1,SKOV3 Spheroid D7 Mor_Mat-Gel1-1_obj_0002,110.28,5.95,1.0,1.0,0.0,20.2,30.3,130.0,14170.0,0.404,False,False,debris
+SKOV3 Spheroid D7 Mor_Mat-Gel1-1,Mat,Gel1,SKOV3 Spheroid D7 Mor_Mat-Gel1-1_obj_0003,110.28,5.95,1.0,1.0,0.0,30.3,25.25,130.0,14170.0,0.286,False,False,debris
+SKOV3 Spheroid D7 Mor_S34D30-Gel1-1,S34D30,Gel1,SKOV3 Spheroid D7 Mor_S34D30-Gel1-1_obj_0001,110.28,5.95,1.0,1.0,0.0,22.73,22.73,130.0,14170.0,0.331,False,False,debris
+SKOV3 Spheroid D7 Mor_S34D30-Gel1-1,S34D30,Gel1,SKOV3 Spheroid D7 Mor_S34D30-Gel1-1_obj_0002,110.28,5.95,1.0,1.0,0.0,30.3,30.3,130.0,14170.0,0.378,False,False,debris

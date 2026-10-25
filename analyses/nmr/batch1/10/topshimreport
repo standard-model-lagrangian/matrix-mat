@@ -1,0 +1,75 @@
+
+New TopShim run:
+
+version = topshim 2.4.0
+date = 2026-09-14
+time = 11:53:44.156
+command = topshim 
+
+FINE SHIMMING
+
+Parameters:
+
+probe = Z108618_0625
+solvent = CDCl3
+shim nucleus = 2H
+nucleus optimised for = 1H
+o1p (from lock) = 7.24 ppm
+
+Results:
+
+
+1D Shimming:
+Iteration  1: LSQ Before= 5.022 Hz, Target= 0.499 Hz, After= 0.580 Hz
+Iteration  2: LSQ Before= 0.580 Hz, Target= 0.592 Hz, After= 0.638 Hz
+Shim succeeded
+
+Lineshape quality factor (1D spectrum, spinning) =  0.638 Hz (FWHM = 0.43 Hz)
+
+shim changes: 
+Z	-165
+Z2	-179
+Z3	-170
+Z4	-58
+Z5	-285
+
+duration = 1 min 5 sec
+completed successfully
+finished Mon Sep 14 11:54:48 2026
+
+
+========================================================================
+
+New TopShim run:
+
+version = topshim 2.4.0
+date = 2026-09-14
+time = 11:54:54.414
+command = topshim  tunea tune
+
+TUNE
+
+Parameters:
+
+probe = Z108618_0625
+solvent = CDCl3
+
+Results:
+
+
+Performing tune after shimming
+tune lock level increase = 1.0
+
+shim changes: 
+Z	+1
+X	-39
+XZ	+43
+Y	+32
+YZ	-1
+
+duration = 1 min 23 sec
+completed successfully
+finished Mon Sep 14 11:56:16 2026
+
+
+========================================================================

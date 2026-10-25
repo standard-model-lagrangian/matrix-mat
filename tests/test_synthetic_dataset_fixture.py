@@ -11,14 +11,16 @@ from pathlib import Path
 from spheroid_pipeline_v2.config import PipelineConfig
 from spheroid_pipeline_v2.run_pipeline import run_spheroid_pipeline
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
 
 class TestSyntheticDatasetFixture(unittest.TestCase):
     """Verifies that the standalone synthetic dataset runs end-to-end in CI."""
 
     def setUp(self):
         self.temp_dir = Path(tempfile.mkdtemp(prefix="spheroid_fixture_test_"))
-        self.d0_dir = Path("tests/fixtures/synthetic_dataset/Day0")
-        self.d7_dir = Path("tests/fixtures/synthetic_dataset/Day7")
+        self.d0_dir = (REPO_ROOT / "tests/fixtures/synthetic_dataset/Day0")
+        self.d7_dir = (REPO_ROOT / "tests/fixtures/synthetic_dataset/Day7")
 
     def tearDown(self):
         if self.temp_dir.exists():

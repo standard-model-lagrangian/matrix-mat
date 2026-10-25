@@ -1,0 +1,16 @@
+##TITLE= Parameter file, TopSpin 3.8.0
+##JCAMPDX= 5.0
+##DATATYPE= Parameter Values
+##NPOINTS= 1	$$ modification sequence number
+##ORIGIN= Bruker BioSpin GmbH
+##OWNER= nmrsu
+$$ 2026-08-26 17:01:59.861 +0100  nmrsu@nanob
+$$ /opt/topspin/nomad/data/adc/nmr/2608261658-3-21-fas324/10/pdata/1/outd
+$$ process /opt/topspin3.8.0/prog/mod/xwish3
+##$CURPLOT= <printer>
+##$CURPRIN= <$printer>
+##$DFORMAT= <normdp>
+##$LAYOUT= <+/Hi1.xwp>
+##$LFORMAT= <normlp>
+##$PFORMAT= <normpl>
+##END=

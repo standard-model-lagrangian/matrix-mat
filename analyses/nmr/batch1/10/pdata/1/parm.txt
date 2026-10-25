@@ -1,0 +1,39 @@
+
+Current Data Parameters
+NAME     2609141149-3-9-fas324              
+EXPNO                10              
+PROCNO                1              
+
+F2 - Acquisition Parameters
+Date_          20260914              
+Time              11.58 h            
+INSTRUM           spect              
+PROBHD   Z108618_0625 (              
+PULPROG            zg30              
+TD                65536              
+SOLVENT           CDCl3              
+NS                   16              
+DS                    4              
+SWH            8012.820 Hz           
+FIDRES         0.244532 Hz           
+AQ            4.0894465 sec          
+RG                71.99              
+DW               62.400 usec         
+DE                 6.50 usec         
+TE                294.7 K            
+D1           1.00000000 sec          
+TD0                   1              
+SFO1        400.3224019 MHz          
+NUC1                 1H              
+P0                 3.67 usec         
+P1                11.00 usec         
+PLW1        20.00000000 W            
+
+F2 - Processing parameters
+SI                65536              
+SF          400.3200000 MHz          
+WDW                  EM              
+SSB                   0              
+LB                    0 Hz           
+GB                    0              
+PC                 1.00              

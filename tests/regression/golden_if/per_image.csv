@@ -1,0 +1,3 @@
+image_id,material,replicate,n_nuclei,n_nuclei_total,n_border_excluded,spheroid_area_um2,spheroid_volume_um3,nuclei_per_mm2,median_nuclear_volume_um3,median_actin_intensity,flag_summary
+SKOV3 Spheroid D7 Mor_Mat-Gel1-1,Mat,Gel1,3,3,0,980.8,23105.2,3058.85,110.28,15.0,low_snr
+SKOV3 Spheroid D7 Mor_S34D30-Gel1-1,S34D30,Gel1,2,2,0,716.5,14427.5,2791.33,110.28,15.0,low_snr

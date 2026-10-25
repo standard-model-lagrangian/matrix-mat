@@ -18,6 +18,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
+import pytest
 import warnings
 
 # Filter skimage grayreconstruct deprecation in NumPy 2.5
@@ -77,7 +78,7 @@ class TestSpheroidIFSweep(unittest.TestCase):
 
     def test_pairing_and_unpaired_enforcement(self):
         """Ensure unpaired image is detected and enforced."""
-        data_dir = Path("Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis")
+        data_dir = PROJECT_ROOT / "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
         if not data_dir.exists():
             self.skipTest("Data directory not present in environment")
 
@@ -94,19 +95,16 @@ class TestSpheroidIFSweep(unittest.TestCase):
 
     def test_deduplicate_masks(self):
         """Test that overlapping mask proposals with IoU > 0.50 are deduplicated."""
-        masks = np.zeros((100, 100), dtype=np.int32)
         # Mask 1: 20x20 box (area 400)
-        masks[10:30, 10:30] = 1
+        mask1 = np.zeros((100, 100), dtype=bool)
+        mask1[10:30, 10:30] = True
         # Mask 2: overlapping box (12:30, 12:30) (area 324, overlap 324, union 400 -> IoU = 324/400 = 0.81)
         mask2 = np.zeros((100, 100), dtype=bool)
         mask2[12:30, 12:30] = True
 
-        combined = masks.copy()
-        combined[mask2] = 2
-
-        dedup, n_removed = deduplicate_masks(combined, iou_threshold=0.50)
-        self.assertGreaterEqual(n_removed, 0)
-        self.assertGreaterEqual(int(dedup.max()), 1)
+        dedup, n_removed = deduplicate_masks([mask1, mask2], iou_threshold=0.50)
+        self.assertEqual(n_removed, 1)
+        self.assertEqual(int(dedup.max()), 1)
 
     def test_qc_flags_unit(self):
         """Test unit behavior of QC artifact flags."""
@@ -259,6 +257,7 @@ class TestSpheroidIFSweep(unittest.TestCase):
             min_distance_um=3.0,
             min_vol_um3=100.0,
             max_vol_um3=5000.0,
+            reference_vol_um3=841.04,
         )
 
         n_found = int(result_mask.max())
@@ -270,13 +269,13 @@ class TestSpheroidIFSweep(unittest.TestCase):
         from skimage import measure
         h, w = 150, 150
         px = 0.505049
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
 
         # Baseline background floor + gradient
         y, x = np.mgrid[:h, :w]
         grad = (y / float(h) * 50.0).astype(np.float32) + 25.0
         # Add high-intensity autofluorescence speckle noise
-        speckles = (np.random.rand(h, w) > 0.985).astype(np.float32) * 90.0
+        speckles = (rng.random((h, w)) > 0.985).astype(np.float32) * 90.0
         noisy_img = np.clip(grad + speckles, 0, 255).astype(np.uint8)
 
         # Place a real nucleus
@@ -387,17 +386,17 @@ class TestSpheroidIFSweep(unittest.TestCase):
     def test_density_outlier_flag_and_small_n(self):
         """Density outlier flag test: flags density IQR outliers and skips IQR for materials with n < 3."""
         # 1. Material 'Mat' has 4 images; one has an extreme density outlier
-        m1 = ImageQCMetrics("img1", "Mat", "Gel1", 50, 50, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=20000.0)
-        m2 = ImageQCMetrics("img2", "Mat", "Gel2", 52, 52, 0, 10.0, 210.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=21000.0)
-        m3 = ImageQCMetrics("img3", "Mat", "Gel3", 48, 48, 0, 10.0, 220.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=20500.0)
-        m4 = ImageQCMetrics("img4", "Mat", "Gel4", 250, 250, 0, 10.0, 205.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=180000.0)  # Extreme outlier
+        m1 = ImageQCMetrics("img1", "Mat", "Gel1", 50, 50, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=20000.0)
+        m2 = ImageQCMetrics("img2", "Mat", "Gel2", 52, 52, 0, 10.0, 210.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=21000.0)
+        m3 = ImageQCMetrics("img3", "Mat", "Gel3", 48, 48, 0, 10.0, 220.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=20500.0)
+        m4 = ImageQCMetrics("img4", "Mat", "Gel4", 250, 250, 0, 10.0, 205.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=180000.0)  # Extreme outlier
 
         # 2. Material 'S46D10' has n=2 (< 3 images)
-        s1 = ImageQCMetrics("s_img1", "S46D10", "Gel1", 30, 30, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=15000.0)
-        s2 = ImageQCMetrics("s_img2", "S46D10", "Gel2", 150, 150, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_density_per_mm3=95000.0)
+        s1 = ImageQCMetrics("s_img1", "S46D10", "Gel1", 30, 30, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=15000.0)
+        s2 = ImageQCMetrics("s_img2", "S46D10", "Gel2", 150, 150, 0, 10.0, 200.0, 0, 0, 0, 0, 0, False, False, False, False, False, False, False, False, False, "", nuclei_per_mm2=95000.0)
 
         cohort = [m1, m2, m3, m4, s1, s2]
-        res = apply_cohort_qc_flags(cohort, qc_config={"outlier_iqr_factor": 1.5})
+        res = apply_cohort_qc_flags(cohort, qc_config={"outlier_iqr_factor": 1.5, "blur_abs_threshold": 50.0})
 
         res_by_id = {m.image_id: m for m in res}
 
@@ -412,13 +411,16 @@ class TestSpheroidIFSweep(unittest.TestCase):
         self.assertFalse(res_by_id["s_img1"].flag_density_outlier, "S46D10 has n < 3; IQR should be skipped")
         self.assertFalse(res_by_id["s_img2"].flag_density_outlier, "S46D10 has n < 3; IQR should be skipped")
 
+    @pytest.mark.dl
     def test_synthetic_blob_segmentation(self):
         """Sanity check: Cellpose-SAM recovers synthetic nuclei blobs within reasonable tolerance."""
-        model_path = Path("models/cpsam_v2")
+        pytest.importorskip("cellpose")
+        env_root = os.environ.get("MATRIX_MAT_MODELS_ROOT")
+        model_path = Path(env_root) / "cpsam_v2" if env_root else PROJECT_ROOT / "models" / "cpsam_v2"
         if not model_path.exists():
-            self.skipTest("CPSAM model weights not available locally")
+            self.skipTest("cpsam_v2 weights not found (set MATRIX_MAT_MODELS_ROOT or run tools/fetch_models.py)")
 
-        np.random.seed(42)
+        rng = np.random.default_rng(42)
         img = np.zeros((256, 256), dtype=np.uint8)
         centers = [(64, 64), (64, 192), (192, 64), (192, 192)]
         radius = 15.0
@@ -430,7 +432,7 @@ class TestSpheroidIFSweep(unittest.TestCase):
             img = np.maximum(img, blob.astype(np.uint8))
 
         # Add simulated sensor noise floor
-        img = np.clip(img + np.random.randint(10, 25, (256, 256), dtype=np.uint8), 0, 255).astype(np.uint8)
+        img = np.clip(img + rng.integers(10, 25, (256, 256), dtype=np.uint8), 0, 255).astype(np.uint8)
 
         engine = CPSAMEngine(model_path=str(model_path), random_seed=42)
         masks, mode = engine.segment_image(

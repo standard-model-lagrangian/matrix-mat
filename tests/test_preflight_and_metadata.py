@@ -152,10 +152,10 @@ class TestPreflightAndProvenance(unittest.TestCase):
     def test_biological_plots_generation(self):
         fig_dir = self.tmp_path / "bio_figs"
         per_img_df = pd.DataFrame([
-            {"image_id": "img1", "material": "Mat", "nuclei_density_per_mm3": 120.0},
-            {"image_id": "img2", "material": "Mat", "nuclei_density_per_mm3": 130.0},
-            {"image_id": "img3", "material": "S34D30", "nuclei_density_per_mm3": 210.0},
-            {"image_id": "img4", "material": "S34D30", "nuclei_density_per_mm3": 220.0},
+            {"image_id": "img1", "material": "Mat", "nuclei_per_mm2": 120.0},
+            {"image_id": "img2", "material": "Mat", "nuclei_per_mm2": 130.0},
+            {"image_id": "img3", "material": "S34D30", "nuclei_per_mm2": 210.0},
+            {"image_id": "img4", "material": "S34D30", "nuclei_per_mm2": 220.0},
         ])
         qc_df = pd.DataFrame([
             {"image_id": "img1", "flag_any": False},

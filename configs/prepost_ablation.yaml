@@ -1,14 +1,14 @@
 # Pre/Post-Processing 2x2 Factorial Ablation Sweep Configuration
 # Freezes Cellpose-SAM hyperparameters at A_baseline values.
-data_dir: "Experimental data /Chuling cells/spheroids staining:IF /nuclei density analysis"
-runs_dir: "runs"
+data_dir: "${DATA_ROOT}/if"
+runs_dir: "${OUTPUT_ROOT}/runs"
 allow_unpaired: true
 overwrite: false
 random_seed: 42
 default_pixel_size_um: 0.5050492474122553
 
 model:
-  pretrained_model: "models/cpsam_v2"
+  pretrained_model: "${MODELS_ROOT}/cpsam_v2"
   model_type: "cpsam"
   use_gpu: true
 
@@ -69,6 +69,8 @@ combos:
         iou_threshold: 0.50
       size_gate:
         enabled: true
+        reference_vol_um3: 841.04
+        reference_citation: "Median single-nucleus volume of the 001_A_baseline run on this SKOV3 dataset (2026-09). Data-derived and provisional; replace with an independent reference (literature or blind manual annotation) before publication."
         min_vol_um3: 210.0
         max_vol_um3: 3364.0
       splitting:
@@ -109,6 +111,8 @@ combos:
         iou_threshold: 0.50
       size_gate:
         enabled: true
+        reference_vol_um3: 841.04
+        reference_citation: "Median single-nucleus volume of the 001_A_baseline run on this SKOV3 dataset (2026-09). Data-derived and provisional; replace with an independent reference (literature or blind manual annotation) before publication."
         min_vol_um3: 210.0
         max_vol_um3: 3364.0
       splitting:
@@ -128,7 +132,11 @@ qc:
   border_margin_px: 5
   edge_heavy_fraction: 0.25
   saturation_fraction_max: 0.005
-  blur_percentile_cutoff: 10.0
+  # Blur flag on the RAW nuclear channel: Laplacian variance below an absolute threshold.
+  # 150 is provisional: on the 27 SKOV3 fields raw values span 133-481 and only Mat-Gel1-3 (133)
+  # falls below it. Confirm by visual review before relying on it.
+  blur_mode: "absolute"
+  blur_abs_threshold: 150.0
   duplicate_iou_threshold: 0.50
   outlier_iqr_factor: 1.5
 

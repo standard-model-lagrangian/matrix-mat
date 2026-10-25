@@ -1,0 +1,138 @@
+{
+  "Reference (Aug 03)": {
+    "description": "Previous validated sample (fas324)",
+    "chemical_shift_offset_ppm": 0.02423953091491171,
+    "diagnostic_1h_doublet": {
+      "integral": 2778.54158569434,
+      "peaks_ppm": [
+        5.164155089695994,
+        5.160488888686714,
+        5.156822687677437,
+        5.126882046101665,
+        5.125354462347799,
+        5.121688261338521
+      ],
+      "coupling_constant_hz": 1.467213643913612,
+      "snr": 72.28647881914193
+    },
+    "peg_backbone": {
+      "integral": 600798.6461337098
+    },
+    "aromatic_deconvolution": {
+      "raw_integral": 34738.889440328196,
+      "chcl3_integral": 7412.888001734387,
+      "chcl3_percentage": 21.338874446368468,
+      "corrected_aromatic_integral": 27326.00143859381,
+      "aromatic_to_1h_ratio": 9.834656274098993
+    },
+    "resolution_models": {
+      "model_1_nominal_20k": {
+        "ratio_peg_to_dbco_1h": 216.22805619573768,
+        "dos_arms_out_of_8": 8.20432361921972,
+        "dom_percent": 102.5540452402465,
+        "dom_aromatic_percent": 126.07297305702781
+      },
+      "model_2_core_and_hb_corrected": {
+        "dos_arms_out_of_8": 8.361565008696125,
+        "dom_percent": 104.51956260870156
+      },
+      "model_3_residual_free_dbco": {
+        "bound_dom_percent": 100.0,
+        "free_dbco_equivalents": 0.20432361921971953,
+        "free_dbco_weight_percent": 0.31966217874614383
+      },
+      "model_4_lot_mn_calibration": {
+        "calibrated_mn_da": 19513.429119181663,
+        "delta_from_nominal_percent": -2.4328544040916857
+      }
+    }
+  },
+  "Batch 1 (Sep 14)": {
+    "description": "pegdbco_batch09/09_1",
+    "chemical_shift_offset_ppm": 0.02538259814758348,
+    "diagnostic_1h_doublet": {
+      "integral": 2935.2531193050772,
+      "peaks_ppm": [
+        5.152260908638835,
+        5.117747864540325
+      ],
+      "coupling_constant_hz": 13.8162618135156,
+      "snr": 190.1965601780616
+    },
+    "peg_backbone": {
+      "integral": 673677.4058950483
+    },
+    "aromatic_deconvolution": {
+      "raw_integral": 29931.306314321682,
+      "chcl3_integral": 5924.62474876622,
+      "chcl3_percentage": 19.794073424491252,
+      "corrected_aromatic_integral": 24006.68156555546,
+      "aromatic_to_1h_ratio": 8.178743225810473
+    },
+    "resolution_models": {
+      "model_1_nominal_20k": {
+        "ratio_peg_to_dbco_1h": 229.51254236450373,
+        "dos_arms_out_of_8": 7.729446636372698,
+        "dom_percent": 96.61808295465872,
+        "dom_aromatic_percent": 98.77681143202615
+      },
+      "model_2_core_and_hb_corrected": {
+        "dos_arms_out_of_8": 7.877586688544672,
+        "dom_percent": 98.4698336068084
+      },
+      "model_3_residual_free_dbco": {
+        "bound_dom_percent": 96.61808295465872,
+        "free_dbco_equivalents": 0.0,
+        "free_dbco_weight_percent": 0.0
+      },
+      "model_4_lot_mn_calibration": {
+        "calibrated_mn_da": 20683.87205756696,
+        "delta_from_nominal_percent": 3.4193602878348064
+      }
+    }
+  },
+  "Batch 2 (Sep 14)": {
+    "description": "pegdbco_batch09/09_2",
+    "chemical_shift_offset_ppm": 0.026298873654623023,
+    "diagnostic_1h_doublet": {
+      "integral": 3558.11296586812,
+      "peaks_ppm": [
+        5.149817507286729,
+        5.11530446318822
+      ],
+      "coupling_constant_hz": 13.816261813514888,
+      "snr": 199.55791867819573
+    },
+    "peg_backbone": {
+      "integral": 720450.2088712008
+    },
+    "aromatic_deconvolution": {
+      "raw_integral": 38006.9962464101,
+      "chcl3_integral": 5983.026700370267,
+      "chcl3_percentage": 15.74190883589067,
+      "corrected_aromatic_integral": 32023.96954603983,
+      "aromatic_to_1h_ratio": 9.00026779735098
+    },
+    "resolution_models": {
+      "model_1_nominal_20k": {
+        "ratio_peg_to_dbco_1h": 202.48098241462745,
+        "dos_arms_out_of_8": 8.761341077217647,
+        "dom_percent": 109.51676346522059,
+        "dom_aromatic_percent": 123.21002493576616
+      },
+      "model_2_core_and_hb_corrected": {
+        "dos_arms_out_of_8": 8.929258081543402,
+        "dom_percent": 111.61572601929252
+      },
+      "model_3_residual_free_dbco": {
+        "bound_dom_percent": 100.0,
+        "free_dbco_equivalents": 0.7613410772176472,
+        "free_dbco_weight_percent": 1.1808199704356765
+      },
+      "model_4_lot_mn_calibration": {
+        "calibrated_mn_da": 18302.22943662316,
+        "delta_from_nominal_percent": -8.488852816884192
+      }
+    }
+  }
+}

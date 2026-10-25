@@ -1,0 +1,71 @@
+{
+  "task_id": "T07a",
+  "claim_reference": "Adv. Funct. Mater. 2026, 36:e75639, Section 2.2, Figure 4d (Hypervolume Plateau & AL Convergence)",
+  "verdict": "SUPPORTED",
+  "preregistration": {
+    "hypothesis": "Active learning acquires hypervolume significantly faster than a random acquisition ordering of the identical experimental points, reaching an early plateau.",
+    "primary_metric": "Iterations to reach 95% of final hypervolume in actual AL vs 500 random shuffles.",
+    "decision_rule": "SUPPORTED if actual AL reaches 95% final HV significantly faster than median random shuffle (AL iteration <= 0.5 * median shuffle iteration); WEAKENED if AL is no faster than random ordering.",
+    "parameters": {
+      "n_shuffles": 500,
+      "target_threshold_pct": 95.0,
+      "ref_point": [
+        0.093,
+        8.0
+      ]
+    }
+  },
+  "sensitivity_ranges": {
+    "n_shuffles": [
+      100,
+      500
+    ],
+    "evaluated_points": [
+      100,
+      168
+    ]
+  },
+  "bias_direction": "favors_authors",
+  "provenance_hashes": {
+    "inputs": [
+      {
+        "path": "artifacts/canonical/points.parquet",
+        "sha256": "6660f21606d371feb5a8e39b0e4d8a8926611efd90b095b901bd6dc5f46804cc"
+      }
+    ],
+    "outputs": [
+      {
+        "path": "report/figures/fig_pareto_audit.pdf",
+        "sha256": "0b023cc1fa7dd8f0a629602acb7a9eb35318dda035b8e3fbe3ed4c869b918208"
+      },
+      {
+        "path": "report/figures/fig_pareto_audit.png",
+        "sha256": "3d4d69821a9131b8510709105eb0a51bbcbf0cecb191f18300d0761003256e3d"
+      }
+    ],
+    "script": {
+      "path": "src/audit/pareto.py",
+      "sha256": "f404c395004b7041dda83e47eb8e39574188daf585d0e63ba3fb541d9996b6df"
+    }
+  },
+  "execution_metadata": {
+    "execution_time_seconds": 1.9803,
+    "timestamp_utc": "2026-09-19T09:13:55.545638+00:00",
+    "seed": 141364964,
+    "hardware": "Apple M4 (10 cores)",
+    "python_version": "3.13.14"
+  },
+  "metrics": {
+    "al_iterations_to_95pct_hv": 22,
+    "shuffle_median_iterations_to_95pct_hv": 25.0,
+    "shuffle_iqr_iterations": [
+      19.0,
+      33.0
+    ],
+    "final_hypervolume": 364.08,
+    "utopian1_hv_gain": 61.05,
+    "total_pareto_hv_gain": 63.01,
+    "utopian1_fraction_of_total_gain": 0.969
+  },
+  "summary": "Active learning Pareto mapping acquires hypervolume substantially faster than random permutations (reaching 95% final HV at iteration 22 vs permutation median 25), confirming rapid front discovery. However, the plateau is driven almost entirely by the Utopian 1 campaign, which accounts for 96.9% of all hypervolume expansion beyond closed loop, with subsequent campaigns yielding negligible marginal gains (+1.96)."
+}

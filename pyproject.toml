@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "matrix-mat"
-version = "0.1.0"
+version = "0.2.1"
 description = "High-precision, QC-audited image analysis pipelines for brightfield spheroid volume changes and immunofluorescence nuclear density."
 readme = "README.md"
 license = { text = "MIT" }
@@ -28,18 +28,43 @@ dependencies = [
     "scikit-image>=0.22.0",
     "opencv-python-headless>=4.8.0",
     "pandas>=2.1.0",
+    "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "matplotlib>=3.8.0",
     "tifffile>=2023.9.0",
     "pillow>=10.0.0",
     "imagecodecs>=2023.1.23",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "statsmodels>=0.14.0",
+    "hypothesis>=6.80.0",
+]
+dl = [
     "torch>=2.1.0",
     "cellpose>=4.0.0",
 ]
 
 [project.scripts]
-spheroid-brightfield = "spheroid_pipeline_v2.run_pipeline:main"
-spheroid-if = "spheroid_if_sweep.cli:main"
+matrix-mat = "matrix_mat.cli:main"
+spheroid-brightfield = "matrix_mat.brightfield.run_pipeline:main"
+spheroid-if = "matrix_mat.if_density.sweep:main"
 
 [tool.setuptools.packages.find]
-include = ["spheroid_pipeline_v2*", "spheroid_if_sweep*"]
+where = [".", "src"]
+include = ["matrix_mat*", "spheroid_pipeline_v2*", "spheroid_if_sweep*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:fast_array_utils --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "dl: marks tests as requiring deep learning weights/models (deselect with '-m \"not dl\"')",
+    "realdata: marks tests requiring external real microscopy data (deselect with '-m \"not realdata\"')",
+]
+

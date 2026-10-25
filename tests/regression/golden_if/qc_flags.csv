@@ -1,0 +1,3 @@
+image_id,material,replicate,n_nuclei_raw,n_nuclei_dedup,n_duplicates_removed,nuclear_snr,nuclear_laplacian_var,nuclear_saturation_frac,actin_saturation_frac,edge_touching_frac,debris_count,merged_count,flag_empty_seg,flag_count_outlier,flag_dup_masks,flag_debris_or_merged,flag_edge_heavy,flag_saturated,flag_blurry,flag_low_snr,flag_any,flags_list,flag_density_outlier,nuclei_per_mm2,n_nuclei_valid,n_border_excluded,debris_count_pre,merged_count_pre
+SKOV3 Spheroid D7 Mor_Mat-Gel1-1,Mat,Gel1,3,3,0,1.0,864.0,0.0,0.0,0.0,0,0,False,False,False,False,False,False,False,True,True,low_snr,False,3058.85,3,0,0,0
+SKOV3 Spheroid D7 Mor_S34D30-Gel1-1,S34D30,Gel1,2,2,0,1.0,576.0,0.0,0.0,0.0,0,0,False,False,False,False,False,False,False,True,True,low_snr,False,2791.33,2,0,0,0
