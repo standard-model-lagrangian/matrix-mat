@@ -1,6 +1,6 @@
 # Architecture & Maintainer's Specification: Image Analysis Pipelines
 
-This document provides a comprehensive technical reference for software engineers, bioinformaticians, and autonomous AI agents working on, extending, or refactoring the image processing pipelines in this repository.
+This document provides a comprehensive technical reference for anyone working on, extending, or refactoring the image processing pipelines in this repository.
 
 ---
 

@@ -218,7 +218,6 @@ configs/           # validated YAML configs
 tests/             # unit / integration / regression / slow, plus synthetic fixtures
 tools/             # fetch_models.py
 docs/              # guides, validation, findings
-analyses/          # separate NMR / rheology / paper-reproduction work (not part of the package)
 ```
 
 `spheroid_pipeline_v2` and `spheroid_if_sweep` are deprecated aliases kept for old imports. They emit a `DeprecationWarning`.
@@ -234,7 +233,7 @@ analyses/          # separate NMR / rheology / paper-reproduction work (not part
 | [Validation](docs/VALIDATION.md) | What is verified, and how |
 | [Visualization guide](docs/VISUALIZATION_GUIDE.md) | What each figure shows |
 | [Reproducibility & troubleshooting](docs/REPRODUCIBILITY_AND_TROUBLESHOOTING.md) | Provenance files, common errors |
-| [Maintainers](docs/AGENTS_AND_MAINTAINERS.md) | Architecture and data contracts |
+| [Architecture](docs/ARCHITECTURE.md) | Architecture and data contracts |
 | [Results delta](docs/findings/RESULTS_DELTA.md) | How the real-data results changed in 0.2 |
 
 ## Citation & licence

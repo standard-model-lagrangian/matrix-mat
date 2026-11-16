@@ -70,7 +70,7 @@ Fixes from the post-0.2.1 review. Every fix has a test that failed first.
 
 ## [0.2.1] - 2026-10-24
 
-Verification of 0.2.0 against `docs/IMPROVEMENT_SPEC.md`, including a full real-data run, found the problems below.
+Verification of 0.2.0 against the post-0.1 review spec, including a full real-data run, found the problems below.
 Every fix has a test that failed first.
 
 ### Fixed — would change or silently corrupt results

@@ -10,7 +10,7 @@ readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
 authors = [
-    { name = "Material Discovery Contributors" }
+    { name = "Frederick Steinmann" }
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

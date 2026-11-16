@@ -60,13 +60,8 @@ htmlcov/
 # Agent Scratch Directories
 .agents/
 
-# Standalone exploratory analyses generated figures & publisher documents (>1 MB or copyright)
-analyses/**/*.pdf
-analyses/**/*.docx
-analyses/rheology/analysis_plots/*.png
-analyses/paper_reproduction/audit/report/figures/*.png
-analyses/nmr/*.png
-analyses/paper_reproduction/audit/.pytest_cache/
+# Unrelated local analyses (NMR, rheology, paper reproduction) — kept locally, not part of this repo
+analyses/
 
 # Independent Repositories within Workspace
 Hydrogel_BO/
