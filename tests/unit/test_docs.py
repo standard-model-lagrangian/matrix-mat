@@ -38,4 +38,4 @@ def test_docs_reference_existing_files():
             if not target_path.exists():
                 missing_links.append(f"{md_file.relative_to(repo_root)}: '{url}' -> {target_path}")
 
-    assert not missing_links, f"Broken relative links found in documentation:\n" + "\n".join(missing_links)
+    assert not missing_links, "Broken relative links found in documentation:\n" + "\n".join(missing_links)

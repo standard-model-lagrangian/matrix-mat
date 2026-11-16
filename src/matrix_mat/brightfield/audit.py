@@ -14,18 +14,19 @@ Provides:
 
 from __future__ import annotations
 
-import glob
 import logging
-import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Tuple, Union
 import cv2
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFont
+
+from matrix_mat.brightfield.config import QCConfig
+from matrix_mat.brightfield.io import list_tiff_files, load_grayscale_image, to_uint8_display
+from matrix_mat.core.naming import is_t0, parse_image_filename
 
 logger = logging.getLogger("matrix_mat.brightfield.audit")
 
@@ -40,14 +41,29 @@ COND_COLORS = {
     "S50": "#8c564b",
 }
 
+# Preferred display order for the known hydrogel conditions; unknown conditions follow, sorted.
+KNOWN_CONDITION_ORDER = ["Mat", "S34D30", "S40D30", "S43D20", "S46D10", "S50"]
+SESSION_AUDIT_COLUMNS = [
+    "filename", "timepoint", "condition", "laplacian_var", "brenner_gradient", "mean_intensity", "std_intensity",
+]
+
+
+def ordered_conditions(values: Iterable) -> List[str]:
+    """Conditions present in ``values``: known names in the canonical order, then the rest sorted."""
+    present = {str(v) for v in values if v is not None and not (isinstance(v, float) and np.isnan(v))}
+    known = [c for c in KNOWN_CONDITION_ORDER if c in present]
+    return known + sorted(present - set(known))
+
 
 def audit_fail_class(
     objects_df: pd.DataFrame,
     output_dir: Union[str, Path],
     save_pdf: bool = True,
+    qc_config: Optional[QCConfig] = None,
 ) -> Dict[str, Path]:
     """
-    Generates multi-panel audit figure characterizing the FAIL object population:
+    Generates multi-panel audit figure characterizing the FAIL object population
+    (gate lines are drawn at the configured QC thresholds):
     - Panel A: Diameter distribution (FAIL vs PASS vs REVIEW)
     - Panel B: Annular Contrast Ratio distribution
     - Panel C: Solidity distribution
@@ -57,6 +73,10 @@ def audit_fail_class(
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
     results: Dict[str, Path] = {}
+    qc = qc_config if qc_config is not None else QCConfig()
+    min_d_gate = float(qc.min_d_um)
+    contrast_gate = float(qc.interior_contrast_pct) if qc.interior_contrast_pct is not None else 1.0 - float(qc.ring_contrast_factor)
+    solidity_gate = float(qc.min_solidity)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 11), dpi=300)
     ax_diam, ax_cont = axes[0, 0], axes[0, 1]
@@ -93,7 +113,7 @@ def audit_fail_class(
             )
         else:
             ax_diam.plot([], [], label=f"{qf} (n=0)", color=QC_COLORS.get(qf, "#7f8c8d"))
-    ax_diam.axvline(40, color="#c0392b", linestyle="--", linewidth=1.5, label="Min Size Gate (40 um)")
+    ax_diam.axvline(min_d_gate, color="#c0392b", linestyle="--", linewidth=1.5, label=f"Min Size Gate ({min_d_gate:g} um)")
     ax_diam.set_xscale("log")
     ax_diam.set_xlabel("Equivalent Diameter ($d$, $\\mu$m) [Log Scale]", fontsize=11, fontweight="bold")
     ax_diam.set_ylabel("Probability Density", fontsize=11, fontweight="bold")
@@ -118,7 +138,7 @@ def audit_fail_class(
             )
         else:
             ax_cont.plot([], [], label=f"{qf} (n=0)", color=QC_COLORS.get(qf, "#7f8c8d"))
-    ax_cont.axvline(0.10, color="#c0392b", linestyle="--", linewidth=1.5, label="Min Contrast Gate (10%)")
+    ax_cont.axvline(contrast_gate, color="#c0392b", linestyle="--", linewidth=1.5, label=f"Min Contrast Gate ({contrast_gate * 100:.0f}%)")
     ax_cont.set_xlabel("Dark Contrast Ratio ($\\Delta I / I_{\\mathrm{ring}}$)", fontsize=11, fontweight="bold")
     ax_cont.set_ylabel("Probability Density", fontsize=11, fontweight="bold")
     ax_cont.set_title("B. Annular Ring Contrast Distribution", fontsize=12, fontweight="bold")
@@ -142,7 +162,7 @@ def audit_fail_class(
             )
         else:
             ax_sol.plot([], [], label=f"{qf} (n=0)", color=QC_COLORS.get(qf, "#7f8c8d"))
-    ax_sol.axvline(0.85, color="#c0392b", linestyle="--", linewidth=1.5, label="Min Solidity Gate (0.85)")
+    ax_sol.axvline(solidity_gate, color="#c0392b", linestyle="--", linewidth=1.5, label=f"REVIEW Solidity Gate ({solidity_gate:g})")
     ax_sol.set_xlabel("Morphological Solidity ($A / A_{\\mathrm{convex}}$)", fontsize=11, fontweight="bold")
     ax_sol.set_ylabel("Probability Density", fontsize=11, fontweight="bold")
     ax_sol.set_title("C. Solidity Distribution by QC Class", fontsize=12, fontweight="bold")
@@ -150,18 +170,18 @@ def audit_fail_class(
     ax_sol.grid(True, linestyle=":", alpha=0.5)
 
     # Panel D: Detection Yield Breakdown by Condition
-    cond_order = ["Mat", "S34D30", "S40D30", "S43D20", "S46D10", "S50"]
-    present_conds = [c for c in cond_order if c in objects_df["condition"].unique()]
-    
+    cond_series = objects_df["condition"].astype(str) if "condition" in objects_df.columns else pd.Series([], dtype=str)
+    present_conds = ordered_conditions(cond_series.unique())
+
     yield_data = []
     for c in present_conds:
-        sub = objects_df[objects_df["condition"] == c]
-        n_pass = (sub["qc_flag"] == "PASS").sum()
-        n_rev = (sub["qc_flag"] == "REVIEW").sum()
-        n_fail = (sub["qc_flag"] == "FAIL").sum()
+        sub = objects_df[cond_series == c]
+        n_pass = int((sub["qc_flag"] == "PASS").sum())
+        n_rev = int((sub["qc_flag"] == "REVIEW").sum())
+        n_fail = int(sub["qc_flag"].isin(["FAIL", "SEG_FAIL"]).sum())
         yield_data.append({"Condition": c, "PASS": n_pass, "REVIEW": n_rev, "FAIL": n_fail, "Total": len(sub)})
-    
-    ydf = pd.DataFrame(yield_data)
+
+    ydf = pd.DataFrame(yield_data, columns=["Condition", "PASS", "REVIEW", "FAIL", "Total"])
     x = np.arange(len(present_conds))
     width = 0.55
 
@@ -224,18 +244,24 @@ def create_fail_audit_crops_grid(
     crop_images = []
     crop_size = (180, 180)
 
+    # Case-insensitive stem -> path lookup (.tif/.tiff/.TIF ...) per timepoint directory
+    stem_index = {
+        "t0": {p.stem: p for p in list_tiff_files(t0_dir)},
+        "t7": {p.stem: p for p in list_tiff_files(t7_dir)},
+    }
     for _, row in sample_df.iterrows():
-        img_dir = Path(t0_dir) if row["timepoint"] == "t0" else Path(t7_dir)
-        raw_path = img_dir / f"{row['image_id']}.tif"
-        if not raw_path.exists():
-            raw_path = img_dir / f"{row['image_id']}.tiff"
-            if not raw_path.exists():
-                raw_path = img_dir / str(row["image_id"])
-                if not raw_path.exists():
-                    continue
-
-        raw = cv2.imread(str(raw_path), cv2.IMREAD_GRAYSCALE)
-        if raw is None:
+        try:
+            tp_key = "t0" if is_t0(row["timepoint"]) else "t7"
+        except ValueError:
+            tp_key = "t7"
+        raw_path = stem_index[tp_key].get(str(row["image_id"]))
+        if raw_path is None:
+            continue
+        try:
+            # tifffile keeps 16-bit depth; percentile stretch for display
+            raw = to_uint8_display(load_grayscale_image(raw_path))
+        except Exception as e:
+            logger.warning(f"FAIL audit grid: could not read {raw_path}: {e}")
             continue
 
         cx, cy = int(row["centroid_x"]), int(row["centroid_y"])
@@ -304,52 +330,68 @@ def audit_session_quality(
     t7_dir: Union[str, Path],
     output_dir: Union[str, Path],
     save_pdf: bool = True,
+    manifest_df: Optional[pd.DataFrame] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Path]]:
     """
     Computes image-level sharpness (Laplacian variance, Brenner gradient) and exposure metrics
-    across all raw brightfield TIFFs to quantify session-level optical stability.
+    across raw brightfield TIFFs to quantify session-level optical stability.
+
+    When ``manifest_df`` (with file_path / timepoint / condition columns) is given, only those
+    images are audited, so --condition / --sample selections are respected. Otherwise all
+    .tif/.tiff files (case-insensitive) in t0_dir / t7_dir are audited. Images are read with
+    tifffile at native bit depth.
     """
     out_dir = Path(output_dir)
     fig_dir = out_dir / "figures"
     fig_dir.mkdir(parents=True, exist_ok=True)
     results: Dict[str, Path] = {}
 
-    t0_files = sorted(glob.glob(os.path.join(t0_dir, "*.tif")))
-    t7_files = sorted(glob.glob(os.path.join(t7_dir, "*.tif")))
+    entries: List[Tuple[str, str, Path]] = []  # (timepoint, condition, path)
+    if manifest_df is not None and not manifest_df.empty and "file_path" in manifest_df.columns:
+        for _, r in manifest_df.iterrows():
+            try:
+                tp = "t0" if is_t0(r.get("timepoint", "")) else "t7"
+            except ValueError:
+                tp = str(r.get("timepoint", "unknown"))
+            entries.append((tp, str(r.get("condition", "Unknown")), Path(r["file_path"])))
+    else:
+        for tp, d, day in (("t0", t0_dir, "Day0"), ("t7", t7_dir, "Day7")):
+            for f in list_tiff_files(d):
+                try:
+                    cond = parse_image_filename(f.name, source_dir_timepoint=day)["condition"]
+                except ValueError:
+                    cond = "Unknown"
+                entries.append((tp, cond, f))
 
     records = []
-    for tp, files in [("t0", t0_files), ("t7", t7_files)]:
-        for f in files:
-            fname = os.path.basename(f)
-            cond = "Mat" if "Mat" in fname else fname.split()[1] if len(fname.split()) > 1 else "Unknown"
-            im = cv2.imread(f, cv2.IMREAD_GRAYSCALE)
-            if im is None:
-                continue
+    for tp, cond, f in entries:
+        try:
+            im = load_grayscale_image(f).astype(np.float64)
+        except Exception as e:
+            logger.warning(f"Session audit: could not read {f}: {e}")
+            continue
 
-            lap_var = float(cv2.Laplacian(im, cv2.CV_64F).var())
-            brenner = float(np.mean((im[:, 2:].astype(float) - im[:, :-2].astype(float)) ** 2))
-            mean_i = float(np.mean(im))
-            std_i = float(np.std(im))
+        lap_var = float(cv2.Laplacian(im, cv2.CV_64F).var())
+        brenner = float(np.mean((im[:, 2:] - im[:, :-2]) ** 2))
+        records.append({
+            "filename": f.name,
+            "timepoint": tp,
+            "condition": cond,
+            "laplacian_var": lap_var,
+            "brenner_gradient": brenner,
+            "mean_intensity": float(np.mean(im)),
+            "std_intensity": float(np.std(im)),
+        })
 
-            records.append({
-                "filename": fname,
-                "timepoint": tp,
-                "condition": cond,
-                "laplacian_var": lap_var,
-                "brenner_gradient": brenner,
-                "mean_intensity": mean_i,
-                "std_intensity": std_i,
-            })
-
-    session_df = pd.DataFrame(records)
+    session_df = pd.DataFrame(records, columns=SESSION_AUDIT_COLUMNS)
     csv_path = out_dir / "session_quality_audit.csv"
     session_df.to_csv(csv_path, index=False)
+    n_images = len(session_df)
 
     # Plot 2-panel figure
     fig, (ax_focus, ax_exp) = plt.subplots(1, 2, figsize=(14, 5.5), dpi=300)
 
-    cond_order = ["Mat", "S34D30", "S40D30", "S43D20", "S46D10", "S50"]
-    present_conds = [c for c in cond_order if c in session_df["condition"].unique()]
+    present_conds = ordered_conditions(session_df["condition"].unique())
 
     # Focus Plot
     t0_focus = [session_df[(session_df["condition"] == c) & (session_df["timepoint"] == "t0")]["laplacian_var"].values for c in present_conds]
@@ -375,12 +417,15 @@ def audit_session_quality(
     ax_exp.bar(x + width/2, [np.median(v) if len(v)>0 else 0 for v in t7_exp], width, label="Day 7 ($t_7$)", color="#e67e22", alpha=0.85)
     ax_exp.set_xticks(x)
     ax_exp.set_xticklabels(present_conds, fontsize=10, fontweight="bold")
-    ax_exp.set_ylabel("Median Global Image Intensity (8-bit)", fontsize=11, fontweight="bold")
+    ax_exp.set_ylabel("Median Global Image Intensity (native units)", fontsize=11, fontweight="bold")
     ax_exp.set_title("B. Illumination / Exposure Stability (t0 vs t7)", fontsize=12, fontweight="bold")
     ax_exp.legend(frameon=True)
     ax_exp.grid(True, linestyle=":", alpha=0.5, axis="y")
 
-    plt.suptitle("Imaging Session Quality & Optical Shift Audit (285 Raw TIFF Images)", fontsize=13, fontweight="bold", y=0.98)
+    if n_images == 0:
+        for ax in (ax_focus, ax_exp):
+            ax.text(0.5, 0.5, "No readable images", ha="center", va="center", transform=ax.transAxes)
+    plt.suptitle(f"Imaging Session Quality & Optical Shift Audit ({n_images} Raw TIFF Images)", fontsize=13, fontweight="bold", y=0.98)
     plt.tight_layout()
 
     png_path = fig_dir / "session_focus_exposure_audit.png"

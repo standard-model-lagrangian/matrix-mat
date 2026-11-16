@@ -1,5 +1,8 @@
 """
-File discovery, regex metadata parsing, SHA-256 calculation, and channel pairing.
+File discovery, filename metadata parsing, SHA-256 calculation, and channel pairing.
+
+Discovery is shared with preflight (`discover_channel_files`) so both see exactly the same files:
+case-insensitive .tif/.tiff, channel taken from an exact `_chNN` suffix.
 """
 
 from __future__ import annotations
@@ -7,17 +10,27 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import tifffile
 from matrix_mat.core.scale import ScaleExtractor
 
 logger = logging.getLogger("matrix_mat.if_density.pairing")
 
+NUCLEAR_CHANNEL = "00"
+ACTIN_CHANNEL = "02"
+
+# '<base>_chNN.tif' / '.tiff' (any case). The channel must be the exact suffix.
+CHANNEL_FILE_PATTERN = re.compile(r"^(?P<base>.+)_ch(?P<channel>\d{2})\.tiff?$", re.IGNORECASE)
+
+# '<cell line> Spheroid D<day> [<tag>]_<material>-Gel<n>[-<subfield>]', e.g.
+#   'SKOV3 Spheroid D7 Mor_S34D30-Gel8-1-2', 'OVCAR3 Spheroid D14_S4.5D30-Gel2', '... Mor_S40_D30-Gel1-1'.
+# Material may contain letters, digits, dots and underscores; it ends at the first '-Gel<n>'.
 FILENAME_PATTERN = re.compile(
-    r"^SKOV3 Spheroid D7 Mor_(?P<material>[A-Za-z0-9]+)-(?P<sample>Gel\d+.*)$"
+    r"^(?P<cell_line>\S+)\s+Spheroid\s+D(?P<day>\d+(?:\.\d+)?)(?:\s+(?P<tag>[^_]+?))?\s*_"
+    r"(?P<material>[A-Za-z0-9][A-Za-z0-9._]*?)-(?P<replicate>[Gg]el\d+)(?:-(?P<subfield>.+))?$"
 )
 
 
@@ -42,105 +55,224 @@ class FieldRecord:
     actin_sha256: str
     image_shape: Tuple[int, ...]
     pixel_size_um: float
-    segmentation_mode: str  # '2D' or '3D'
+    segmentation_mode: str  # always '2D' (3D inputs are rejected)
+    cell_line: str = ""
+    day: str = ""
+    scale_source: str = ""
+    is_calibrated: bool = True
+
+
+@dataclass
+class ChannelDiscovery:
+    """Channel files found in a data directory, keyed by field base name."""
+    files: List[Path]
+    channels: Dict[str, Dict[str, Path]]  # channel ('00') -> base -> path
+    unrecognized: List[Path] = field(default_factory=list)
+    collisions: List[str] = field(default_factory=list)
+
+    @property
+    def nuclear(self) -> Dict[str, Path]:
+        return self.channels.get(NUCLEAR_CHANNEL, {})
+
+    @property
+    def actin(self) -> Dict[str, Path]:
+        return self.channels.get(ACTIN_CHANNEL, {})
+
+
+def discover_channel_files(data_dir: str | Path) -> ChannelDiscovery:
+    """
+    List .tif/.tiff files (case-insensitive) and index them by channel and base name.
+    Two files that resolve to the same base and channel (e.g. X_ch00.tif and X_ch00.tiff) are a collision.
+    """
+    data_dir = Path(data_dir)
+    files = sorted(p for p in data_dir.iterdir() if p.is_file() and p.suffix.lower() in (".tif", ".tiff"))
+    channels: Dict[str, Dict[str, Path]] = {}
+    unrecognized: List[Path] = []
+    collisions: List[str] = []
+    for p in files:
+        m = CHANNEL_FILE_PATTERN.match(p.name)
+        if not m:
+            unrecognized.append(p)
+            continue
+        base, ch = m.group("base"), m.group("channel")
+        slot = channels.setdefault(ch, {})
+        if base in slot:
+            collisions.append(f"{base} ch{ch}: {slot[base].name} and {p.name}")
+            continue
+        slot[base] = p
+    return ChannelDiscovery(files=files, channels=channels, unrecognized=unrecognized, collisions=collisions)
+
+
+def parse_field_name(base_name: str) -> Dict[str, str]:
+    """
+    Parse cell line, day, material, replicate (gel) and subfield from a field base name.
+    Raises ValueError when the name does not follow the expected pattern.
+    """
+    match = FILENAME_PATTERN.match(base_name)
+    if not match:
+        raise ValueError(
+            f"Unrecognised IF field name '{base_name}': expected "
+            "'<cell line> Spheroid D<day> [<tag>]_<material>-Gel<n>[-<subfield>]'"
+        )
+    return {
+        "cell_line": match.group("cell_line"),
+        "day": match.group("day"),
+        "material": match.group("material"),
+        "replicate": match.group("replicate"),
+        "subfield": match.group("subfield") or "1",
+    }
 
 
 def parse_field_metadata(base_name: str) -> Tuple[str, str, str]:
     """
-    Parse material, replicate, and subfield from base name.
+    Parse (material, replicate, subfield) from base name; raises ValueError on an unrecognised name.
     Example: 'SKOV3 Spheroid D7 Mor_Mat-Gel1-2' -> ('Mat', 'Gel1', '2')
     """
-    match = FILENAME_PATTERN.match(base_name)
-    if not match:
-        return "Unknown", "Unknown", "1"
-
-    material = match.group("material")
-    sample = match.group("sample")
-    parts = sample.split("-")
-    replicate = parts[0]
-    subfield = "-".join(parts[1:]) if len(parts) > 1 else "1"
-    return material, replicate, subfield
+    info = parse_field_name(base_name)
+    return info["material"], info["replicate"], info["subfield"]
 
 
-def discover_and_pair_fields(
+def read_image_2d(path: Path, image_id: str = ""):
+    """Read a TIFF as a 2D array: RGB(A) is converted to grayscale explicitly, z-stacks are refused."""
+    from matrix_mat.if_density.preprocess import ensure_2d_grayscale
+    return ensure_2d_grayscale(tifffile.imread(path), image_id or path.name)
+
+
+def classify_shape(shape: Tuple[int, ...]) -> str:
+    """'2D', 'RGB' (H, W, 3|4), or '3D' (anything else with >2 dims and more than one plane)."""
+    if len(shape) == 2:
+        return "2D"
+    if len(shape) == 3 and shape[-1] in (3, 4) and shape[0] > 4:
+        return "RGB"
+    if len(shape) >= 3 and all(s == 1 for s in shape[:-2]):
+        return "2D"
+    return "3D"
+
+
+def spatial_shape(shape: Tuple[int, ...]) -> Tuple[int, ...]:
+    """(H, W) of a 2D, singleton-stack or RGB(A) image shape."""
+    return tuple(shape[:2]) if classify_shape(shape) == "RGB" else tuple(shape[-2:])
+
+
+@dataclass
+class PairingResult:
+    records: List[FieldRecord]
+    unpaired_bases: List[str]
+    unparsed_bases: List[str]
+
+
+def discover_and_pair_fields_detailed(
     data_dir: str | Path,
     allow_unpaired: bool = False,
     default_pixel_size_um: float = 0.505049,
-) -> Tuple[List[FieldRecord], List[str]]:
+    allow_uncalibrated: bool = True,
+) -> PairingResult:
     """
-    Discover all TIFF files in data_dir, pair ch00 (nuclear) and ch02 (actin),
-    compute hashes and metadata, and validate pairing completeness.
+    Discover TIFF files in data_dir, pair ch00 (nuclear) and ch02 (actin), compute hashes and metadata.
+
+    - Fields whose names do not parse are skipped with a warning (never pooled into an 'Unknown' group).
+    - When the data contain more than one (cell line, day) group, the material label is qualified as
+      '<cell line>_D<day>_<material>' so different groups are not pooled.
+    - A field whose nuclear TIFF has no physical scale raises unless allow_uncalibrated is True;
+      the scale source is recorded per field.
+    - z-stacks are rejected (the pipeline is 2D only).
     """
     data_dir = Path(data_dir)
     if not data_dir.exists():
         raise FileNotFoundError(f"Data directory not found: {data_dir}")
 
-    all_tifs = sorted(list(data_dir.glob("*.tif")))
-    if not all_tifs:
+    disc = discover_channel_files(data_dir)
+    if not disc.files:
         raise ValueError(f"No TIFF files found in {data_dir}")
+    if disc.collisions:
+        raise ValueError("Ambiguous channel files (same field and channel twice):\n  " + "\n  ".join(disc.collisions))
+    for p in disc.unrecognized:
+        logger.warning(f"Unrecognized TIFF name (no _chNN suffix): {p.name}")
+    for ch in sorted(set(disc.channels) - {NUCLEAR_CHANNEL, ACTIN_CHANNEL}):
+        logger.warning(f"Ignoring {len(disc.channels[ch])} file(s) of channel ch{ch} (only ch00 and ch02 are used)")
 
-    ch00_files: Dict[str, Path] = {}
-    ch02_files: Dict[str, Path] = {}
-
-    for p in all_tifs:
-        if p.name.endswith("_ch00.tif"):
-            base = p.name[:-9]
-            ch00_files[base] = p
-        elif p.name.endswith("_ch02.tif"):
-            base = p.name[:-9]
-            ch02_files[base] = p
-        else:
-            logger.warning(f"Unrecognized TIFF suffix (not ch00 or ch02): {p.name}")
-
-    all_bases = sorted(set(list(ch00_files.keys()) + list(ch02_files.keys())))
+    ch00_files, ch02_files = disc.nuclear, disc.actin
+    all_bases = sorted(set(ch00_files) | set(ch02_files))
     scale_extractor = ScaleExtractor(default_pixel_size_um=default_pixel_size_um)
 
     paired_records: List[FieldRecord] = []
     unpaired_bases: List[str] = []
+    unparsed_bases: List[str] = []
+    uncalibrated: List[str] = []
 
     for base in all_bases:
-        has_ch00 = base in ch00_files
-        has_ch02 = base in ch02_files
-
-        if not (has_ch00 and has_ch02):
-            missing = "ch00" if not has_ch00 else "ch02"
+        if not (base in ch00_files and base in ch02_files):
+            missing = "ch00" if base not in ch00_files else "ch02"
             logger.warning(f"Field '{base}' is unpaired: missing {missing} channel")
             unpaired_bases.append(base)
+            continue
+        try:
+            info = parse_field_name(base)
+        except ValueError as e:
+            logger.warning(f"Skipping field: {e}")
+            unparsed_bases.append(base)
             continue
 
         nuc_path = ch00_files[base]
         act_path = ch02_files[base]
 
-        material, replicate, subfield = parse_field_metadata(base)
-
-        # Extract image shape from nuclear file
         with tifffile.TiffFile(nuc_path) as tif:
             shape = tuple(tif.series[0].shape)
+        with tifffile.TiffFile(act_path) as tif:
+            act_shape = tuple(tif.series[0].shape)
+        kind = classify_shape(shape)
+        if kind == "3D" or classify_shape(act_shape) == "3D":
+            raise ValueError(
+                f"Field '{base}' is a multi-plane stack {shape}; 3D input is not supported by the IF pipeline"
+            )
+        if spatial_shape(shape) != spatial_shape(act_shape):
+            raise ValueError(f"Field '{base}': ch00 shape {shape} does not match ch02 shape {act_shape}")
 
-        seg_mode = "3D" if len(shape) >= 3 and shape[0] > 1 else "2D"
-
-        # Extract pixel size
         scale_info = scale_extractor.extract(nuc_path)
-        pixel_size = scale_info.pixel_size_um
+        if not scale_info.is_calibrated:
+            uncalibrated.append(base)
+        act_scale = scale_extractor.extract(act_path)
+        if (scale_info.is_calibrated and act_scale.is_calibrated
+                and abs(act_scale.pixel_size_um - scale_info.pixel_size_um) > 0.01 * scale_info.pixel_size_um):
+            raise ValueError(
+                f"Field '{base}': ch00 pixel size {scale_info.pixel_size_um} != ch02 pixel size {act_scale.pixel_size_um}"
+            )
 
-        # Calculate sha256 checksums
-        nuc_sha = compute_sha256(nuc_path)
-        act_sha = compute_sha256(act_path)
-
-        rec = FieldRecord(
+        paired_records.append(FieldRecord(
             field_id=base,
-            material=material,
-            replicate=replicate,
-            subfield=subfield,
+            material=info["material"],
+            replicate=info["replicate"],
+            subfield=info["subfield"],
             nuclear_path=nuc_path,
             actin_path=act_path,
-            nuclear_sha256=nuc_sha,
-            actin_sha256=act_sha,
+            nuclear_sha256=compute_sha256(nuc_path),
+            actin_sha256=compute_sha256(act_path),
             image_shape=shape,
-            pixel_size_um=pixel_size,
-            segmentation_mode=seg_mode,
+            pixel_size_um=scale_info.pixel_size_um,
+            segmentation_mode="2D",
+            cell_line=info["cell_line"],
+            day=info["day"],
+            scale_source=scale_info.source,
+            is_calibrated=bool(scale_info.is_calibrated),
+        ))
+
+    if uncalibrated:
+        msg = (
+            f"{len(uncalibrated)} field(s) have no embedded pixel scale and would use the default "
+            f"{default_pixel_size_um} um/px: " + ", ".join(uncalibrated)
         )
-        paired_records.append(rec)
+        if not allow_uncalibrated:
+            raise ValueError(msg + ". Set allow_uncalibrated: true in the config to accept the default scale.")
+        logger.warning(msg + " (allow_uncalibrated=true)")
+
+    groups = sorted({(r.cell_line, r.day) for r in paired_records})
+    if len(groups) > 1:
+        logger.warning(
+            f"Data contain {len(groups)} (cell line, day) groups {groups}; material labels are qualified as "
+            "'<cell line>_D<day>_<material>' so groups are not pooled"
+        )
+        for r in paired_records:
+            r.material = f"{r.cell_line}_D{r.day}_{r.material}"
 
     if unpaired_bases and not allow_unpaired:
         msg = (
@@ -152,6 +284,21 @@ def discover_and_pair_fields(
         raise RuntimeError(msg)
 
     logger.info(
-        f"Pairing complete: {len(paired_records)} valid pairs, {len(unpaired_bases)} unpaired skipped."
+        f"Pairing complete: {len(paired_records)} valid pairs, {len(unpaired_bases)} unpaired skipped, "
+        f"{len(unparsed_bases)} unrecognised names skipped."
     )
-    return paired_records, unpaired_bases
+    return PairingResult(records=paired_records, unpaired_bases=unpaired_bases, unparsed_bases=unparsed_bases)
+
+
+def discover_and_pair_fields(
+    data_dir: str | Path,
+    allow_unpaired: bool = False,
+    default_pixel_size_um: float = 0.505049,
+    allow_uncalibrated: bool = True,
+) -> Tuple[List[FieldRecord], List[str]]:
+    """Backwards-compatible wrapper: returns (records, unpaired_bases)."""
+    res = discover_and_pair_fields_detailed(
+        data_dir, allow_unpaired=allow_unpaired, default_pixel_size_um=default_pixel_size_um,
+        allow_uncalibrated=allow_uncalibrated,
+    )
+    return res.records, res.unpaired_bases

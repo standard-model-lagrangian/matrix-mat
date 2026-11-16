@@ -81,7 +81,7 @@ def test_no_global_numpy_seed_calls():
                     violating_lines.append(f"{py_file.relative_to(repo_root)}:{line_no}: {clean_line}")
 
     assert not violating_lines, (
-        f"Found forbidden calls to global np.random.seed:\n" + "\n".join(violating_lines)
+        "Found forbidden calls to global np.random.seed:\n" + "\n".join(violating_lines)
     )
 
 

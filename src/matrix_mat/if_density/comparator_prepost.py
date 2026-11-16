@@ -12,11 +12,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import cv2
 import matplotlib
 if "MPLCONFIGDIR" not in os.environ:
     os.environ["MPLCONFIGDIR"] = tempfile.gettempdir()
@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tifffile
-from skimage import measure, segmentation
+from skimage import segmentation
 
 logger = logging.getLogger("matrix_mat.if_density.comparator_prepost")
 
@@ -36,6 +36,48 @@ SEEDED_DISAGREEMENT_IDS = [
     "SKOV3 Spheroid D7 Mor_Mat-Gel1-3",
     "SKOV3 Spheroid D7 Mor_S43D20-Gel2-1-2",
 ]
+
+
+ARMS = ("PP00", "PP10", "PP01", "PP11")
+_ARM_PATTERN = re.compile(r"(?<![A-Za-z0-9])(PP00|PP10|PP01|PP11)(?![0-9])")
+ORIGINAL_RUNS = ["001_A_baseline", "002_B_sensitive", "003_C_conservative", "004_D_3d"]
+ROBUSTNESS_RUNS = ["201_A_baseline_pp", "202_B_sensitive_pp", "203_C_conservative_pp", "204_D_3d_pp"]
+FIELD_LEVEL_SD_NOTE = (
+    "descriptive: mean and SD over fields (field-level); fields of one gel are not independent replicates"
+)
+
+
+def ablation_arm(slug: str) -> Optional[str]:
+    """'PP00' | 'PP10' | 'PP01' | 'PP11' when the slug names an ablation arm as a token, else None."""
+    m = _ARM_PATTERN.search(slug)
+    return m.group(1) if m else None
+
+
+def slug_scope(slug: str) -> str:
+    """Run scope from the directory name: '*_subset' is a subset run, anything else a full run."""
+    return "subset" if slug.endswith("_subset") else "full"
+
+
+def find_arm_dirs(runs_dir: Path) -> Dict[Tuple[str, str], Path]:
+    """
+    Map (scope, arm) -> run directory for completed ablation runs. Several directories for the same
+    scope and arm is ambiguous and raises ValueError listing them.
+    """
+    found: Dict[Tuple[str, str], List[Path]] = {}
+    if not runs_dir.exists():
+        return {}
+    for d in sorted(runs_dir.iterdir()):
+        if not d.is_dir():
+            continue
+        arm = ablation_arm(d.name)
+        if arm is None:
+            continue
+        found.setdefault((slug_scope(d.name), arm), []).append(d)
+    dup = {k: v for k, v in found.items() if len(v) > 1}
+    if dup:
+        detail = "; ".join(f"{s}/{a}: {', '.join(x.name for x in v)}" for (s, a), v in sorted(dup.items()))
+        raise ValueError(f"Multiple run directories match the same ablation arm ({detail}); keep one per arm")
+    return {k: v[0] for k, v in found.items()}
 
 
 def load_run_metadata(run_dir: Path) -> Dict[str, Any]:
@@ -50,13 +92,15 @@ def compute_cv_spread(values: List[float]) -> float:
     """
     Compute Coefficient of Variation (CV = sample std / mean) as a scale-invariant spread metric.
     If all values are scaled by a constant factor c > 0, CV is invariant: CV(c * X) == CV(X).
+    Undefined (NaN) for fewer than 2 finite values or a non-positive mean; callers exclude NaN.
     """
-    if not values or len(values) < 2:
-        return 0.0
-    arr = np.asarray(values, dtype=float)
+    arr = np.asarray([v for v in (values or []) if v is not None], dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size < 2:
+        return float("nan")
     mean_val = float(np.mean(arr))
     if mean_val <= 1e-9:
-        return 0.0
+        return float("nan")
     return float(np.std(arr, ddof=1) / mean_val)
 
 
@@ -73,14 +117,12 @@ def generate_ablation_effects_csv(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     rows: List[Dict[str, Any]] = []
 
-    ablation_dirs = sorted([
-        d for d in runs_dir.iterdir()
-        if d.is_dir() and ("PP00" in d.name or "PP10" in d.name or "PP01" in d.name or "PP11" in d.name)
-    ])
+    arm_dirs = find_arm_dirs(runs_dir)
+    for (scope, arm) in sorted(arm_dirs):
+        logger.info(f"Ablation arm {arm} ({scope}): {arm_dirs[(scope, arm)].name}")
 
-    for r_dir in ablation_dirs:
+    for (scope, arm), r_dir in sorted(arm_dirs.items()):
         slug = r_dir.name
-        scope = "subset" if "s_" in slug or slug.endswith("_subset") else "full"
         meta = load_run_metadata(r_dir)
         post_stats = meta.get("postprocessing", {}).get("per_image_stats", {})
 
@@ -127,9 +169,11 @@ def generate_ablation_effects_csv(
                 "n_split_candidates": p_stat.get("n_split_candidates", 0),
                 "n_split_accepted": p_stat.get("n_split_accepted", 0),
                 "n_border_excluded": p_stat.get("n_border_excluded", r.get("n_border_excluded", 0)),
+                "arm": arm,
+                "sd_level": "",
             })
 
-    # Per-material mean +- SD density per combo
+    # Per-material mean +- SD density per combo (descriptive, over fields)
     if rows:
         base_df = pd.DataFrame(rows)
         summary_rows = []
@@ -164,6 +208,8 @@ def generate_ablation_effects_csv(
                 "n_split_candidates": int(grp["n_split_candidates"].sum()),
                 "n_split_accepted": int(grp["n_split_accepted"].sum()),
                 "n_border_excluded": int(grp["n_border_excluded"].sum()),
+                "arm": grp["arm"].iloc[0],
+                "sd_level": FIELD_LEVEL_SD_NOTE,
             })
 
         all_rows = rows + summary_rows
@@ -178,7 +224,8 @@ def generate_ablation_effects_csv(
     if rows:
         mat_table = []
         for (scope, mat), grp_m in base_df.groupby(["scope", "material"]):
-            row_dict = {"scope": scope, "material": mat, "n_images": len(grp_m["image_id"].unique())}
+            row_dict = {"scope": scope, "material": mat, "n_images": len(grp_m["image_id"].unique()),
+                        "sd_level": FIELD_LEVEL_SD_NOTE}
             for slug, grp_s in grp_m.groupby("combo_slug"):
                 m_d = float(grp_s["nuclei_per_mm2"].mean())
                 s_d = float(grp_s["nuclei_per_mm2"].std(ddof=1)) if len(grp_s) > 1 else float("nan")
@@ -190,123 +237,137 @@ def generate_ablation_effects_csv(
     return df
 
 
+def _load_family(runs_dir: Path, names: List[str], scope: str, warnings: List[str]) -> Dict[str, pd.DataFrame]:
+    dfs: Dict[str, pd.DataFrame] = {}
+    for r in names:
+        name = f"{r}_subset" if scope == "subset" else r
+        f = runs_dir / name / "features" / "per_image.csv"
+        if f.exists():
+            d = pd.read_csv(f)
+            if "nuclei_per_mm2" not in d.columns:
+                raise ValueError(f"{name}: " + "per-image table has no nuclei_per_mm2 column (pre-0.2 run with pseudo-volumetric density); re-run it before comparing")
+            dfs[name] = d.drop_duplicates("image_id").set_index("image_id")
+        else:
+            msg = f"Run '{name}' not found in {runs_dir}; excluded from the robustness comparison"
+            logger.warning(msg)
+            warnings.append(msg)
+    return dfs
+
+
+def find_identical_runs(dfs: Dict[str, pd.DataFrame], images: List[str]) -> List[Tuple[str, str]]:
+    """Pairs of runs whose n_nuclei and nuclei_per_mm2 are identical on every given image."""
+    names = list(dfs)
+    pairs = []
+    for i, a in enumerate(names):
+        for b in names[i + 1:]:
+            if not images:
+                continue
+            ca, cb = dfs[a].loc[images], dfs[b].loc[images]
+            if (ca["n_nuclei"].values == cb["n_nuclei"].values).all() and np.allclose(
+                ca["nuclei_per_mm2"].values.astype(float), cb["nuclei_per_mm2"].values.astype(float), equal_nan=True
+            ):
+                pairs.append((a, b))
+    return pairs
+
+
+def _r3(x: float) -> float:
+    return round(float(x), 3) if np.isfinite(x) else float("nan")
+
+
+def _red_pct(orig: float, pp: float) -> float:
+    if not (np.isfinite(orig) and np.isfinite(pp)) or orig <= 1e-12:
+        return float("nan")
+    return round(100.0 * (orig - pp) / orig, 1)
+
+
 def generate_robustness_vs_original_csv(
     runs_dir: Path,
     output_path: Path,
+    scope: str = "full",
 ) -> pd.DataFrame:
     """
-    Compare original 4 runs (001-004) vs pre/post 4 runs (201-204):
-    Measure count spread and density spread reduction per material.
+    Compare the original runs (001-004) with the pre/post-processed runs (201-204): per-image CV of the
+    count and density across each family's runs, summarised per material.
+
+    - Only images present in every available run of BOTH families are compared.
+    - A missing run is warned about and excluded (no KeyError); a family needs >= 2 runs for a CV.
+    - CV is NaN when undefined and excluded from means; values are rounded to 3 decimals.
+    - Runs with identical outputs (e.g. 004_D_3d == 001_A_baseline on 2D data) are reported.
+    Warnings are returned in DataFrame.attrs['warnings'] for the effect summary.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    orig_runs = ["001_A_baseline", "002_B_sensitive", "003_C_conservative", "004_D_3d"]
-    pp_runs = ["201_A_baseline_pp", "202_B_sensitive_pp", "203_C_conservative_pp", "204_D_3d_pp"]
-
-    orig_dfs = {}
-    for r in orig_runs:
-        f = runs_dir / r / "features" / "per_image.csv"
-        if f.exists():
-            orig_dfs[r] = pd.read_csv(f).set_index("image_id")
-
-    pp_dfs = {}
-    for r in pp_runs:
-        f = runs_dir / r / "features" / "per_image.csv"
-        if f.exists():
-            pp_dfs[r] = pd.read_csv(f).set_index("image_id")
+    warns: List[str] = []
+    orig_dfs = _load_family(runs_dir, ORIGINAL_RUNS, scope, warns)
+    pp_dfs = _load_family(runs_dir, ROBUSTNESS_RUNS, scope, warns)
 
     if not orig_dfs or not pp_dfs:
         logger.warning("Missing original or robustness runs for comparison.")
-        return pd.DataFrame()
-    for r, d in {**orig_dfs, **pp_dfs}.items():
-        if "nuclei_per_mm2" not in d.columns:
-            raise ValueError(f"{r}: " + "per-image table has no nuclei_per_mm2 column (pre-0.2 run with pseudo-volumetric density); re-run it before comparing")
+        empty = pd.DataFrame()
+        empty.attrs["warnings"] = warns
+        return empty
+    for fam, dfs in (("original", orig_dfs), ("robustness", pp_dfs)):
+        if len(dfs) < 2:
+            msg = f"Only {len(dfs)} {fam} run(s) available; the cross-parameter CV needs at least 2"
+            logger.warning(msg)
+            warns.append(msg)
 
-    common_images = sorted(list(set.intersection(*[set(d.index) for d in orig_dfs.values()])))
+    all_dfs = {**orig_dfs, **pp_dfs}
+    common_images = sorted(set.intersection(*[set(d.index) for d in all_dfs.values()]))
+    dropped = sorted(set.union(*[set(d.index) for d in all_dfs.values()]) - set(common_images))
+    if dropped:
+        msg = f"{len(dropped)} image(s) not present in every run were excluded: {', '.join(dropped[:10])}"
+        logger.warning(msg)
+        warns.append(msg)
+
+    for fam_dfs in (orig_dfs, pp_dfs):
+        for a, b in find_identical_runs(fam_dfs, common_images):
+            msg = (f"Runs '{a}' and '{b}' produced identical outputs on all {len(common_images)} common images; "
+                   "they are not independent parameter settings (on 2D data the 3D/stitch slot equals baseline)")
+            logger.warning(msg)
+            warns.append(msg)
+
+    first = next(iter(orig_dfs.values()))
     image_rows = []
-
     for img_id in common_images:
-        mat = orig_dfs[orig_runs[0]].loc[img_id, "material"]
-        orig_counts = [orig_dfs[r].loc[img_id, "n_nuclei"] for r in orig_runs if img_id in orig_dfs[r].index]
-        orig_dens = [orig_dfs[r].loc[img_id, "nuclei_per_mm2"] for r in orig_runs if img_id in orig_dfs[r].index]
-
-        pp_counts = [pp_dfs[r].loc[img_id, "n_nuclei"] for r in pp_runs if img_id in pp_dfs[r].index]
-        pp_dens = [pp_dfs[r].loc[img_id, "nuclei_per_mm2"] for r in pp_runs if img_id in pp_dfs[r].index]
-
-        orig_c_spread = compute_cv_spread(orig_counts)
-        orig_d_spread = compute_cv_spread(orig_dens)
-
-        pp_c_spread = compute_cv_spread(pp_counts)
-        pp_d_spread = compute_cv_spread(pp_dens)
-
         image_rows.append({
             "image_id": img_id,
-            "material": mat,
-            "orig_count_spread": orig_c_spread,
-            "pp_count_spread": pp_c_spread,
-            "orig_density_spread": orig_d_spread,
-            "pp_density_spread": pp_d_spread,
+            "material": first.loc[img_id, "material"],
+            "orig_count_spread": compute_cv_spread([d.loc[img_id, "n_nuclei"] for d in orig_dfs.values()]),
+            "pp_count_spread": compute_cv_spread([d.loc[img_id, "n_nuclei"] for d in pp_dfs.values()]),
+            "orig_density_spread": compute_cv_spread([d.loc[img_id, "nuclei_per_mm2"] for d in orig_dfs.values()]),
+            "pp_density_spread": compute_cv_spread([d.loc[img_id, "nuclei_per_mm2"] for d in pp_dfs.values()]),
         })
+    img_df = pd.DataFrame(image_rows, columns=["image_id", "material", "orig_count_spread", "pp_count_spread",
+                                               "orig_density_spread", "pp_density_spread"])
 
-    img_df = pd.DataFrame(image_rows)
+    def _summary(label: str, group: pd.DataFrame) -> Dict[str, Any]:
+        valid = group[np.isfinite(group["orig_count_spread"]) & np.isfinite(group["pp_count_spread"])]
+        o_mean, p_mean = float(valid["orig_count_spread"].mean()), float(valid["pp_count_spread"].mean())
+        o_max, p_max = float(valid["orig_count_spread"].max()), float(valid["pp_count_spread"].max())
+        valid_d = group[np.isfinite(group["orig_density_spread"]) & np.isfinite(group["pp_density_spread"])]
+        o_d, p_d = float(valid_d["orig_density_spread"].mean()), float(valid_d["pp_density_spread"].mean())
+        return {
+            "material": label,
+            "n_images": int(len(valid)),
+            "orig_mean_count_spread": _r3(o_mean),
+            "orig_max_count_spread": _r3(o_max),
+            "pp_mean_count_spread": _r3(p_mean),
+            "pp_max_count_spread": _r3(p_max),
+            "spread_reduction_mean_pct": _red_pct(o_mean, p_mean),
+            "spread_reduction_max_pct": _red_pct(o_max, p_max),
+            "orig_mean_density_spread": _r3(o_d),
+            "pp_mean_density_spread": _r3(p_d),
+            "density_spread_reduction_pct": _red_pct(o_d, p_d),
+        }
 
-    # Per-material summary
-    mat_rows = []
-    for mat, group in img_df.groupby("material"):
-        n_img = len(group)
-        orig_c_mean = float(group["orig_count_spread"].mean())
-        orig_c_max = float(group["orig_count_spread"].max())
-        pp_c_mean = float(group["pp_count_spread"].mean())
-        pp_c_max = float(group["pp_count_spread"].max())
-
-        c_mean_red_pct = 100.0 * (orig_c_mean - pp_c_mean) / max(1e-6, orig_c_mean)
-        c_max_red_pct = 100.0 * (orig_c_max - pp_c_max) / max(1e-6, orig_c_max)
-
-        orig_d_mean = float(group["orig_density_spread"].mean())
-        pp_d_mean = float(group["pp_density_spread"].mean())
-        d_mean_red_pct = 100.0 * (orig_d_mean - pp_d_mean) / max(1e-6, orig_d_mean)
-
-        mat_rows.append({
-            "material": mat,
-            "n_images": n_img,
-            "orig_mean_count_spread": round(orig_c_mean, 1),
-            "orig_max_count_spread": round(orig_c_max, 1),
-            "pp_mean_count_spread": round(pp_c_mean, 1),
-            "pp_max_count_spread": round(pp_c_max, 1),
-            "spread_reduction_mean_pct": round(c_mean_red_pct, 1),
-            "spread_reduction_max_pct": round(c_max_red_pct, 1),
-            "orig_mean_density_spread": round(orig_d_mean, 1),
-            "pp_mean_density_spread": round(pp_d_mean, 1),
-            "density_spread_reduction_pct": round(d_mean_red_pct, 1),
-        })
-
-    # Overall cohort row
-    all_orig_c_mean = float(img_df["orig_count_spread"].mean())
-    all_orig_c_max = float(img_df["orig_count_spread"].max())
-    all_pp_c_mean = float(img_df["pp_count_spread"].mean())
-    all_pp_c_max = float(img_df["pp_count_spread"].max())
-    all_c_red_mean = 100.0 * (all_orig_c_mean - all_pp_c_mean) / max(1e-6, all_orig_c_mean)
-    all_c_red_max = 100.0 * (all_orig_c_max - all_pp_c_max) / max(1e-6, all_orig_c_max)
-    all_orig_d = float(img_df["orig_density_spread"].mean())
-    all_pp_d = float(img_df["pp_density_spread"].mean())
-    all_d_red = 100.0 * (all_orig_d - all_pp_d) / max(1e-6, all_orig_d)
-
-    mat_rows.append({
-        "material": "ALL_COHORT",
-        "n_images": len(img_df),
-        "orig_mean_count_spread": round(all_orig_c_mean, 1),
-        "orig_max_count_spread": round(all_orig_c_max, 1),
-        "pp_mean_count_spread": round(all_pp_c_mean, 1),
-        "pp_max_count_spread": round(all_pp_c_max, 1),
-        "spread_reduction_mean_pct": round(all_c_red_mean, 1),
-        "spread_reduction_max_pct": round(all_c_red_max, 1),
-        "orig_mean_density_spread": round(all_orig_d, 1),
-        "pp_mean_density_spread": round(all_pp_d, 1),
-        "density_spread_reduction_pct": round(all_d_red, 1),
-    })
+    mat_rows = [_summary(mat, group) for mat, group in img_df.groupby("material")]
+    mat_rows.append(_summary("ALL_COHORT", img_df))
 
     mat_df = pd.DataFrame(mat_rows)
     mat_df.to_csv(output_path, index=False)
+    mat_df.attrs["warnings"] = warns
+    mat_df.attrs["orig_runs"] = list(orig_dfs)
+    mat_df.attrs["pp_runs"] = list(pp_dfs)
     logger.info(f"Saved robustness comparison to {output_path}")
     return mat_df
 
@@ -318,15 +379,12 @@ def generate_panels(
     """Generate before/after preprocessing and split-mask overlays for top 5 disagreement images."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Reference run folders
-    pp11_dir = runs_dir / "104_PP11_full"
-    if not pp11_dir.exists():
-        pp11_dir = runs_dir / "104s_PP11_full"
-    pp00_dir = runs_dir / "101_PP00_none_none"
-    if not pp00_dir.exists():
-        pp00_dir = runs_dir / "101s_PP00_none_none"
-    if not pp00_dir.exists():
-        pp00_dir = runs_dir / "001_A_baseline"
+    # Reference run folders, found by ablation arm (full scope preferred, then subset)
+    arm_dirs = find_arm_dirs(runs_dir)
+    pp11_dir = arm_dirs.get(("full", "PP11")) or arm_dirs.get(("subset", "PP11")) or runs_dir / "104_PP11_full"
+    pp00_dir = arm_dirs.get(("full", "PP00")) or arm_dirs.get(("subset", "PP00")) or runs_dir / "001_A_baseline"
+    pre_methods = load_run_metadata(pp11_dir).get("preprocessing", {}).get("methods", [])
+    pre_label = " + ".join(pre_methods) if pre_methods else "no preprocessing recorded"
 
     for img_id in SEEDED_DISAGREEMENT_IDS:
         # 1. Preprocessing before / after montage
@@ -358,7 +416,7 @@ def generate_panels(
                     ax[0].axis("off")
 
                     ax[1].imshow(proc_nuc, cmap="magma")
-                    ax[1].set_title("Preprocessed (Rolling Ball + Percentile Clip)", color="white")
+                    ax[1].set_title(f"Preprocessed ({pre_label})", color="white")
                     ax[1].axis("off")
 
                     plt.suptitle(f"Preprocessing Impact: {img_id}", color="white", fontsize=14)
@@ -426,46 +484,55 @@ def generate_effect_summary_md(
     if full_df.empty:
         full_df = ablation_df[~ablation_df["image_id"].astype(str).str.startswith("SUMMARY_")]
 
-    # Quantitative metrics per combo slug
-    counts_by_slug = {}
-    flags_by_slug = {}
-    debris_by_slug = {}
-    low_snr_by_slug = {}
+    # Map each arm to exactly one run (slug); several runs for one arm is ambiguous.
+    slugs_by_arm: Dict[str, List[str]] = {}
+    for slug in sorted(full_df["combo_slug"].astype(str).unique()):
+        arm = ablation_arm(slug)
+        if arm:
+            slugs_by_arm.setdefault(arm, []).append(slug)
+    ambiguous = {a: s for a, s in slugs_by_arm.items() if len(s) > 1}
+    if ambiguous:
+        raise ValueError(f"Multiple runs for the same ablation arm: {ambiguous}")
+    arm_slug = {a: s[0] for a, s in slugs_by_arm.items()}
+    missing_arms = [a for a in ARMS if a not in arm_slug]
 
-    if not full_df.empty:
-        for slug, grp in full_df.groupby("combo_slug"):
-            counts_by_slug[slug] = float(grp["n_nuclei_final"].mean())
-            flags_by_slug[slug] = float(grp["flag_any"].mean()) * 100.0
-            debris_by_slug[slug] = int(grp["flag_debris_or_merged"].sum())
-            low_snr_by_slug[slug] = int(grp["flags_list"].astype(str).str.contains("low_snr").sum())
+    # Quantitative metrics per arm
+    counts: Dict[str, float] = {}
+    flags: Dict[str, float] = {}
+    debris: Dict[str, int] = {}
+    low_snr: Dict[str, int] = {}
+    for arm, slug in arm_slug.items():
+        grp = full_df[full_df["combo_slug"] == slug]
+        counts[arm] = float(grp["n_nuclei_final"].mean())
+        flags[arm] = float(grp["flag_any"].astype(bool).mean()) * 100.0
+        debris[arm] = int(grp["flag_debris_or_merged"].astype(bool).sum())
+        low_snr[arm] = int(grp["flags_list"].astype(str).str.contains("low_snr").sum())
 
-    # Reference values
-    slug_00 = [s for s in counts_by_slug if "PP00" in s]
-    slug_10 = [s for s in counts_by_slug if "PP10" in s]
-    slug_01 = [s for s in counts_by_slug if "PP01" in s]
-    slug_11 = [s for s in counts_by_slug if "PP11" in s]
+    def have(*arms: str) -> bool:
+        return all(a in arm_slug for a in arms)
 
-    c00 = counts_by_slug[slug_00[0]] if slug_00 else 0.0
-    c10 = counts_by_slug[slug_10[0]] if slug_10 else 0.0
-    c01 = counts_by_slug[slug_01[0]] if slug_01 else 0.0
-    c11 = counts_by_slug[slug_11[0]] if slug_11 else 0.0
+    def not_available(*arms: str) -> str:
+        miss = [a for a in arms if a not in arm_slug]
+        return f"- Not available: ablation arm(s) {', '.join(miss)} not found in this runs directory."
 
-    flg00 = flags_by_slug[slug_00[0]] if slug_00 else 0.0
-    flg10 = flags_by_slug[slug_10[0]] if slug_10 else 0.0
-    flg01 = flags_by_slug[slug_01[0]] if slug_01 else 0.0
-    flg11 = flags_by_slug[slug_11[0]] if slug_11 else 0.0
+    def pct(new: float, old: float) -> str:
+        return f"{(new - old) / old * 100.0:+.1f}%" if old > 1e-6 else "n/a"
 
-    deb00 = debris_by_slug[slug_00[0]] if slug_00 else 0
-    deb10 = debris_by_slug[slug_10[0]] if slug_10 else 0
-    deb01 = debris_by_slug[slug_01[0]] if slug_01 else 0
-    deb11 = debris_by_slug[slug_11[0]] if slug_11 else 0
-
-    low00 = low_snr_by_slug[slug_00[0]] if slug_00 else 0
-    low10 = low_snr_by_slug[slug_10[0]] if slug_10 else 0
-    low01 = low_snr_by_slug[slug_01[0]] if slug_01 else 0
-    low11 = low_snr_by_slug[slug_11[0]] if slug_11 else 0
+    def effect_lines(arm: str, ref: str = "PP00") -> List[str]:
+        if not have(arm, ref):
+            return [not_available(arm, ref)]
+        c_d, f_d, b_d = counts[arm] - counts[ref], flags[arm] - flags[ref], debris[arm] - debris[ref]
+        return [
+            f"- **Quantitative Deltas (`{arm}` vs `{ref}`)**:",
+            f"  - Delta Nuclei Count: **{c_d:+.1f}** nuclei/field ({pct(counts[arm], counts[ref])})",
+            f"  - Delta Overall Flag Rate: **{f_d:+.1f}** percentage points (from {flags[ref]:.1f}% to {flags[arm]:.1f}%)",
+            f"  - `debris_or_merged` Flagged Images: **{debris[ref]} -> {debris[arm]}** ({b_d:+d})",
+            f"  - `low_snr` Flagged Images: **{low_snr[ref]} -> {low_snr[arm]}** ({low_snr[arm] - low_snr[ref]:+d})",
+        ]
 
     # Robustness metrics
+    rob_warnings: List[str] = list(getattr(robustness_df, "attrs", {}).get("warnings", []))
+    c_red_mean = c_red_max = orig_mean_spread = pp_mean_spread = float("nan")
     if not robustness_df.empty and "material" in robustness_df.columns:
         all_cohort_row = robustness_df[robustness_df["material"] == "ALL_COHORT"]
         if not all_cohort_row.empty:
@@ -473,22 +540,18 @@ def generate_effect_summary_md(
             c_red_max = float(all_cohort_row.iloc[0]["spread_reduction_max_pct"])
             orig_mean_spread = float(all_cohort_row.iloc[0]["orig_mean_count_spread"])
             pp_mean_spread = float(all_cohort_row.iloc[0]["pp_mean_count_spread"])
-        else:
-            c_red_mean = c_red_max = orig_mean_spread = pp_mean_spread = float("nan")
-    else:
-        c_red_mean = c_red_max = orig_mean_spread = pp_mean_spread = float("nan")
     robustness_evaluated = not np.isnan(c_red_mean)
     n_fields = int(full_df["image_id"].nunique()) if not full_df.empty else 0
 
     if robustness_evaluated:
         robustness_summary = [
-            f"- **Robustness**: mean cross-parameter count spread changed from **{orig_mean_spread:.1f}** to "
-            f"**{pp_mean_spread:.1f}** ({c_red_mean:+.1f}% reduction; max {c_red_max:+.1f}%).",
+            f"- **Robustness**: mean cross-parameter count CV changed from **{orig_mean_spread:.3f}** to "
+            f"**{pp_mean_spread:.3f}** ({c_red_mean:+.1f}% reduction; max {c_red_max:+.1f}%).",
         ]
     else:
         robustness_summary = [
             "- **Robustness**: not evaluated (original 001–004 and robustness 201–204 runs were not both found "
-            "in this runs directory).",
+            "in this runs directory, or no image had a defined spread).",
         ]
 
     lines = [
@@ -499,6 +562,10 @@ def generate_effect_summary_md(
         "All numbers below are calculated from the run outputs; interpretation is left to `docs/findings/`.",
         "",
         *robustness_summary,
+    ]
+    if missing_arms:
+        lines.append(f"- **Missing ablation arms**: {', '.join(missing_arms)}; effects that need them are reported as not available.")
+    lines.extend([
         "",
         "---",
         "",
@@ -506,72 +573,95 @@ def generate_effect_summary_md(
         "",
         "| Configuration | Preprocessing | Post-processing | Mean Nuclei Count | Flagged Images (%) | Debris/Merged Flags |",
         "| :--- | :--- | :--- | :--- | :--- | :--- |",
-    ]
-
-    for slug in sorted(counts_by_slug.keys()):
-        cnt = counts_by_slug.get(slug, 0.0)
-        flg = flags_by_slug.get(slug, 0.0)
-        deb = debris_by_slug.get(slug, 0)
-        is_pre = "BG Sub + Norm" if "PP1" in slug else "Off"
-        is_post = "Size + Split + Border" if ("PP01" in slug or "PP11" in slug) else "Off"
-        lines.append(f"| `{slug}` | {is_pre} | {is_post} | {cnt:.1f} | {flg:.1f}% | {deb} |")
-
-    deb01_pct = ((deb00 - deb01) / deb00 * 100.0) if deb00 > 0 else 0.0
-    deb11_pct = ((deb00 - deb11) / deb00 * 100.0) if deb00 > 0 else 0.0
-
+    ])
+    for arm in ARMS:
+        if arm not in arm_slug:
+            lines.append(f"| *{arm}: not available* | - | - | - | - | - |")
+            continue
+        is_pre = "BG Sub + Norm" if arm in ("PP10", "PP11") else "Off"
+        is_post = "Size + Split + Border" if arm in ("PP01", "PP11") else "Off"
+        lines.append(f"| `{arm_slug[arm]}` | {is_pre} | {is_post} | {counts[arm]:.1f} | {flags[arm]:.1f}% | {debris[arm]} |")
     lines.extend([
         "",
+        f"Per-material mean ± SD in `ablation_effects.csv` and `ablation_material_density_summary.csv` are "
+        f"{FIELD_LEVEL_SD_NOTE}.",
+        "",
         "### Main Effect of Preprocessing (Background Subtraction + Normalization)",
-        f"- **Quantitative Deltas (`PP10` vs `PP00`)**:",
-        f"  - Delta Nuclei Count: **{c10 - c00:+.1f}** nuclei/field ({((c10 - c00) / max(1e-6, c00)) * 100.0:+.1f}%)",
-        f"  - Delta Overall Flag Rate: **{flg10 - flg00:+.1f}%** (from {flg00:.1f}% to {flg10:.1f}%)",
-        f"  - `debris_or_merged` Flagged Images: **{deb00} -> {deb10}** ({deb10 - deb00:+d})",
-        f"  - `low_snr` Flagged Images: **{low00} -> {low10}** ({low10 - low00:+d})",
+        *effect_lines("PP10"),
         "",
         "### Main Effect of Post-Processing (Size Gate + Splitting + Border Exclusion)",
-        f"- **Quantitative Deltas (`PP01` vs `PP00`)**:",
-        f"  - Delta Nuclei Count: **{c01 - c00:+.1f}** nuclei/field ({((c01 - c00) / max(1e-6, c00)) * 100.0:+.1f}%)",
-        f"  - Delta Overall Flag Rate: **{flg01 - flg00:+.1f}%** (from {flg00:.1f}% down to {flg01:.1f}%)",
-        f"  - `debris_or_merged` Flagged Images: **{deb00} -> {deb01}** ({deb01 - deb00:+d}, {deb01_pct:.0f}% change)",
-        f"  - `low_snr` Flagged Images: **{low00} -> {low01}** ({low01 - low00:+d})",
-        "  - Note: the size gate removes the very objects that raise `debris_or_merged`, so its drop under "
-        "post-processing is expected by construction and is not evidence of better segmentation.",
-        "",
-        "### Interaction Effect (`PP11_full`)",
-        f"- **Quantitative Deltas (`PP11` vs `PP00`)**:",
-        f"  - Delta Nuclei Count: **{c11 - c00:+.1f}** nuclei/field ({((c11 - c00) / max(1e-6, c00)) * 100.0:+.1f}%)",
-        f"  - Delta Overall Flag Rate: **{flg11 - flg00:+.1f}%** (from {flg00:.1f}% down to {flg11:.1f}%, a **{flg00 - flg11:.1f}% absolute reduction**)",
-        f"  - `debris_or_merged` Flagged Images: **{deb00} -> {deb11}** ({deb11 - deb00:+d}, {deb11_pct:.0f}% change)",
-        f"  - `low_snr` Flagged Images: **{low00} -> {low11}**",
-        f"  - Interaction (count): **{(c11 - c01) - (c10 - c00):+.1f}** nuclei/field "
-        "(effect of preprocessing with post-processing on, minus without)",
+        *effect_lines("PP01"),
+    ])
+    if have("PP01", "PP00"):
+        lines.append(
+            "  - Note: the size gate removes the very objects that raise `debris_or_merged`, so its drop under "
+            "post-processing is expected by construction and is not evidence of better segmentation."
+        )
+    lines.extend(["", "### Combined Pre + Post (`PP11`)", *effect_lines("PP11")])
+    if have(*ARMS):
+        lines.append(
+            f"  - Interaction (count): **{(counts['PP11'] - counts['PP01']) - (counts['PP10'] - counts['PP00']):+.1f}** "
+            "nuclei/field (effect of preprocessing with post-processing on, minus without)"
+        )
+    else:
+        lines.append("  - Interaction: not available (needs all four arms).")
+
+    def f3(x: Any) -> str:
+        try:
+            xf = float(x)
+        except (TypeError, ValueError):
+            return str(x)
+        return format(xf, ".3f") if np.isfinite(xf) else "n/a"
+
+    def f1(x: Any) -> str:
+        try:
+            xf = float(x)
+        except (TypeError, ValueError):
+            return str(x)
+        return f"{xf:.1f}%" if np.isfinite(xf) else "n/a"
+
+    orig_used = getattr(robustness_df, "attrs", {}).get("orig_runs", [])
+    pp_used = getattr(robustness_df, "attrs", {}).get("pp_runs", [])
+    lines.extend([
         "",
         "---",
         "",
-        "## 2. Robustness Regression Test (Original 4 CPSAM Configs with PP11)",
+        "## 2. Robustness Regression Test (Original CPSAM Configs vs the Same Configs with PP11)",
         "",
-        "Per-material comparison between the original hyperparameter sweep (`001_A_baseline` through `004_D_3d`) and the pre/post-processed sweep (`201_A_baseline_pp` through `204_D_3d_pp`):",
+        "Per-material mean coefficient of variation (CV) of the per-field count and density across the "
+        "runs of each family; images must be present in every run of both families.",
+        f"Original runs used: {', '.join(f'`{r}`' for r in orig_used) or 'none'}; "
+        f"robustness runs used: {', '.join(f'`{r}`' for r in pp_used) or 'none'}.",
         "",
-        "| Material | Images | Orig Mean Spread | PP Mean Spread | Count Spread Reduction (%) | Orig Density Spread | PP Density Spread | Density Spread Reduction (%) |",
+        "| Material | Images | Orig Mean CV | PP Mean CV | Count CV Reduction (%) | Orig Density CV | PP Density CV | Density CV Reduction (%) |",
         "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
     ])
 
     if not robustness_df.empty and "material" in robustness_df.columns:
         for _, row in robustness_df.iterrows():
             mat = row["material"]
-            n_img = row["n_images"]
-            o_c = row["orig_mean_count_spread"]
-            p_c = row["pp_mean_count_spread"]
-            c_red = row["spread_reduction_mean_pct"]
-            o_d = row["orig_mean_density_spread"]
-            p_d = row["pp_mean_density_spread"]
-            d_red = row["density_spread_reduction_pct"]
             bold = "**" if mat == "ALL_COHORT" else ""
             lines.append(
-                f"| {bold}`{mat}`{bold} | {n_img} | {o_c:.1f} | {p_c:.1f} | {bold}{c_red:.1f}%{bold} | {o_d:.1f} | {p_d:.1f} | {bold}{d_red:.1f}%{bold} |"
+                f"| {bold}`{mat}`{bold} | {row['n_images']} | {f3(row['orig_mean_count_spread'])} | "
+                f"{f3(row['pp_mean_count_spread'])} | {bold}{f1(row['spread_reduction_mean_pct'])}{bold} | "
+                f"{f3(row['orig_mean_density_spread'])} | {f3(row['pp_mean_density_spread'])} | "
+                f"{bold}{f1(row['density_spread_reduction_pct'])}{bold} |"
             )
     else:
         lines.append("| *(not evaluated)* | - | - | - | - | - | - | - |")
+    if rob_warnings:
+        lines.extend(["", "**Warnings:**", *[f"- {w}" for w in rob_warnings]])
+
+    module_lines = []
+    if have("PP11", "PP10"):
+        module_lines.append(f"1. **Clump splitting**: count delta PP11 − PP10: {counts['PP11'] - counts['PP10']:+.1f} nuclei/field.")
+    else:
+        module_lines.append("1. **Clump splitting**: " + not_available("PP11", "PP10")[2:])
+    if have("PP11", "PP00"):
+        module_lines.append(f"2. **Background subtraction + size gating**: debris flag delta PP11 − PP00: {debris['PP11'] - debris['PP00']:+d}.")
+    else:
+        module_lines.append("2. **Background subtraction + size gating**: " + not_available("PP11", "PP00")[2:])
+    module_lines.append("3. **Border exclusion**: border-strip nuclei excluded from the count and the strip excluded from the density area.")
 
     lines.extend([
         "",
@@ -579,9 +669,7 @@ def generate_effect_summary_md(
         "",
         "## 3. Module Evaluation Summary",
         "",
-        f"1. **Dense Center Nuclear Clumping / Merges**: Seeded watershed splitting evaluated on clump candidates; delta count: {c11 - c10:+.1f} nuclei/field.",
-        f"2. **Hydrogel Autofluorescence Specks**: Background subtraction and size gating evaluated; debris flag delta: {deb11 - deb00:+d}.",
-        f"3. **Border Margin Truncation**: Perimeter clearance gating applied.",
+        *module_lines,
         "",
         "*(Note: Narrative biological interpretation is archived in `docs/findings/` and is not auto-generated.)*",
         "",
@@ -602,8 +690,9 @@ def generate_effect_summary_md(
 def run_comparator_prepost(
     runs_dir: str | Path = "runs",
     output_dir: Optional[str | Path] = None,
+    scope: str = "full",
 ) -> Path:
-    """Execute all Phase 5 pre/post comparison steps."""
+    """Execute all pre/post comparison steps (robustness compares runs of the given scope)."""
     runs_dir = Path(runs_dir)
     comp_dir = Path(output_dir) if output_dir else runs_dir / "comparison_prepost"
     comp_dir.mkdir(parents=True, exist_ok=True)
@@ -616,7 +705,7 @@ def run_comparator_prepost(
 
     # 2. robustness_vs_original.csv
     robustness_csv = comp_dir / "robustness_vs_original.csv"
-    robustness_df = generate_robustness_vs_original_csv(runs_dir, robustness_csv)
+    robustness_df = generate_robustness_vs_original_csv(runs_dir, robustness_csv, scope=scope)
 
     # 3. panels
     generate_panels(runs_dir, panels_dir)

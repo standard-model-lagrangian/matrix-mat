@@ -303,21 +303,32 @@ class QCFilter:
                 else:
                     rec.qc_reasons = f"{reason_area}; {rec.qc_reasons}"
 
-            # Check maximum objects per FOV limit if configured
-            if self.config.max_objects_per_fov > 0 and clean_label_idx > self.config.max_objects_per_fov:
-                rec.qc_flag = "REVIEW"
+            # Maximum objects per FOV: objects beyond the limit are demoted PASS -> REVIEW.
+            # FAIL objects are never promoted; REVIEW objects keep their flag.
+            is_clean = rec.qc_flag not in ("FAIL", "SEG_FAIL")
+            if is_clean and self.config.max_objects_per_fov > 0 and clean_label_idx > self.config.max_objects_per_fov:
+                if rec.qc_flag == "PASS":
+                    rec.qc_flag = "REVIEW"
                 reason_max = f"exceeds_max_objects_per_fov ({self.config.max_objects_per_fov})"
                 rec.qc_reasons = reason_max if (rec.qc_reasons in ("None", "", None)) else f"{rec.qc_reasons}; {reason_max}"
 
             # Only PASS and REVIEW objects enter the clean label map
-            if rec.qc_flag not in ("FAIL", "SEG_FAIL"):
+            if is_clean:
                 clean_mask[obj_bin] = clean_label_idx
                 rec.label_idx = clean_label_idx
                 # Update object ID to match clean label index
                 rec.object_id = f"{rec.pair_key}_{rec.timepoint}_obj{clean_label_idx}"
                 clean_label_idx += 1
+            else:
+                # Rejected objects keep their raw segmentation label in a distinct namespace so
+                # object_id stays unique within the image (obj<k> is reserved for clean labels).
+                rec.object_id = f"{rec.pair_key}_{rec.timepoint}_fail{obj_lbl}"
 
             records.append(rec)
+
+        ids = [r.object_id for r in records]
+        if len(ids) != len(set(ids)):
+            raise AssertionError(f"Duplicate object_id within image {meta.get('image_id')}: {ids}")
 
         return clean_mask, records
 
@@ -356,15 +367,33 @@ def filter_and_measure_objects(
 def deduplicate_dataset_objects(
     objects: List[SpheroidObjectRecord],
     max_duplicate_distance_px: float = 35.0,
+    max_duplicate_distance_um: Optional[float] = None,
+    enabled: bool = True,
 ) -> Tuple[List[SpheroidObjectRecord], Dict[str, Any]]:
     """
     Cross-FOV Deduplication Pass within the same well and timepoint.
-    Identifies spheroids imaged across redundant or multi-focal Z-planes:
+
+    ASSUMPTION: different FOV numbers of one (condition, replicate, timepoint) may be z-planes of
+    the same physical field, so pixel coordinates are comparable across FOVs. If the FOVs are
+    distinct fields of the well this assumption is wrong; disable via ``enabled=False``
+    (``qc.dedup_cross_fov: false``).
+
     For any two objects O_A and O_B in the same (condition, replicate, timepoint)
-    with FOV_A != FOV_B and centroid distance <= max_duplicate_distance_px:
+    with FOV_A != FOV_B and centroid distance <= the threshold:
       - Keeps the in-focus instance with higher annular contrast ratio (or higher circularity)
       - Marks the other duplicate as qc_flag = 'FAIL', qc_reasons = 'duplicate_focal_plane'
+
+    The threshold is ``max_duplicate_distance_um`` (converted per pair with the objects' own
+    pixel sizes) when given, otherwise ``max_duplicate_distance_px``.
     """
+    if not enabled:
+        return objects, {
+            "total_objects": len(objects),
+            "duplicates_flagged": 0,
+            "remaining_pass_or_review": sum(1 for o in objects if o.qc_flag in ("PASS", "REVIEW")),
+            "enabled": False,
+            "flagged_object_ids": [],
+        }
     from collections import defaultdict
     well_groups = defaultdict(list)
     for idx, obj in enumerate(objects):
@@ -373,8 +402,9 @@ def deduplicate_dataset_objects(
 
     resolved_losers = set()
     duplicate_count = 0
+    flagged_ids: List[str] = []
 
-    for (cond, rep, tp), group_items in well_groups.items():
+    for group_items in well_groups.values():
         if len(group_items) < 2:
             continue
         matched_pairs = []
@@ -385,7 +415,12 @@ def deduplicate_dataset_objects(
                 idx_b, obj_b = group_items[j]
                 if obj_a.fov != obj_b.fov:
                     dist = math.hypot(obj_a.centroid_x - obj_b.centroid_x, obj_a.centroid_y - obj_b.centroid_y)
-                    if dist <= max_duplicate_distance_px:
+                    if max_duplicate_distance_um is not None:
+                        px_um = 0.5 * (float(obj_a.pixel_size_um) + float(obj_b.pixel_size_um))
+                        is_dup = dist * px_um <= float(max_duplicate_distance_um)
+                    else:
+                        is_dup = dist <= max_duplicate_distance_px
+                    if is_dup:
                         matched_pairs.append((dist, idx_a, obj_a, idx_b, obj_b))
 
         # Sort matches by distance ascending
@@ -408,6 +443,7 @@ def deduplicate_dataset_objects(
 
             resolved_losers.add(loser_idx)
             duplicate_count += 1
+            flagged_ids.append(loser_obj.object_id)
 
             loser_obj.qc_flag = "FAIL"
             reason_str = f"duplicate_focal_plane (matched with {winner_obj.object_id} in fov {winner_obj.fov}, dist={dist:.1f}px)"
@@ -420,6 +456,8 @@ def deduplicate_dataset_objects(
         "total_objects": len(objects),
         "duplicates_flagged": duplicate_count,
         "remaining_pass_or_review": sum(1 for o in objects if o.qc_flag in ("PASS", "REVIEW")),
+        "enabled": True,
+        "flagged_object_ids": flagged_ids,
     }
     logger.info(f"Cross-FOV deduplication completed: {duplicate_count} duplicate focal-plane spheroids marked FAIL.")
     return objects, diagnostics

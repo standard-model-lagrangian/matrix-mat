@@ -9,7 +9,7 @@ def test_effective_fov_counts_handles_string_and_int_fovs(fov_values):
     """In-memory pipeline frames carry zero-padded string FOVs; CSV round-trips give ints. Both must work."""
     f1, f4 = fov_values
     rows = []
-    for i in range(3):
+    for _i in range(3):
         rows.append({"condition": "Mat", "replicate": "gel1", "timepoint": "t0", "fov": f1, "qc_reasons": "None"})
         rows.append({
             "condition": "Mat", "replicate": "gel1", "timepoint": "t0", "fov": f4,

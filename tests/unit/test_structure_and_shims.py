@@ -77,7 +77,7 @@ def test_core_has_no_downstream_imports():
                 if node.module and any(f in node.module for f in forbidden):
                     violations.append(f"{py_file.name}: from {node.module} import ...")
 
-    assert not violations, f"Forbidden downstream imports found in core:\n" + "\n".join(violations)
+    assert not violations, "Forbidden downstream imports found in core:\n" + "\n".join(violations)
 
 
 def test_if_density_does_not_import_brightfield():
@@ -100,7 +100,7 @@ def test_if_density_does_not_import_brightfield():
                 if node.module and any(f in node.module for f in forbidden):
                     violations.append(f"{py_file.name}: from {node.module} import ...")
 
-    assert not violations, f"Forbidden brightfield imports found in if_density:\n" + "\n".join(violations)
+    assert not violations, "Forbidden brightfield imports found in if_density:\n" + "\n".join(violations)
 
 
 def test_package_does_not_import_tests():
@@ -121,4 +121,4 @@ def test_package_does_not_import_tests():
                 if node.module and (node.module.startswith("tests") or "synthetic_generator" in node.module):
                     violations.append(f"{py_file.name}: from {node.module} import ...")
 
-    assert not violations, f"Forbidden test imports in production code:\n" + "\n".join(violations)
+    assert not violations, "Forbidden test imports in production code:\n" + "\n".join(violations)

@@ -13,7 +13,6 @@ import hashlib
 import importlib.metadata
 import json
 import logging
-import os
 import platform
 import socket
 import subprocess
@@ -111,7 +110,9 @@ def get_lockfile_sha256() -> Optional[str]:
 
 def get_models_lock_sha256() -> Optional[str]:
     """Computes SHA-256 of models.lock.json (pinned model weight manifest)."""
-    p = REPO_ROOT / "models.lock.json"
+    from matrix_mat.core.repro import default_models_lock_path
+
+    p = default_models_lock_path()
     if p.exists() and p.is_file():
         try:
             return compute_file_sha256(p)
@@ -122,7 +123,9 @@ def get_models_lock_sha256() -> Optional[str]:
 
 def get_default_weights_sha256(model_ident: str = "cpsam_v2") -> Optional[str]:
     """Retrieves the pinned weights SHA-256 from models.lock.json (the backend refuses any other file)."""
-    lock_path = REPO_ROOT / "models.lock.json"
+    from matrix_mat.core.repro import default_models_lock_path
+
+    lock_path = default_models_lock_path()
     if lock_path.exists():
         try:
             with open(lock_path, "r", encoding="utf-8") as f:
@@ -257,6 +260,20 @@ def write_run_metadata(
     return out_file
 
 
+def _as_bool(v: Any) -> bool:
+    """bool() that treats None/NaN as False and parses 'true'/'false' strings (bool(nan) is True)."""
+    if v is None:
+        return False
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "yes")
+    try:
+        if pd.isna(v):
+            return False
+    except (TypeError, ValueError):
+        pass
+    return bool(v)
+
+
 def write_manifest_csv(
     run_dir: Path,
     field_records: Any,
@@ -279,6 +296,8 @@ def write_manifest_csv(
             "image_shape": "x".join(str(s) for s in rec.image_shape) if hasattr(rec, "image_shape") and rec.image_shape else "",
             "voxel_size_um": getattr(rec, "pixel_size_um", 0.505049),
             "segmentation_mode": getattr(rec, "segmentation_mode", "2D"),
+            "scale_source": getattr(rec, "scale_source", None) or "unknown",
+            "is_calibrated": _as_bool(getattr(rec, "is_calibrated", False)),
         })
     df = pd.DataFrame(rows)
     out_path = run_dir / "manifest.csv"
@@ -291,13 +310,35 @@ def export_complete_manifest(
     manifest_df: pd.DataFrame,
     output_dir: Union[str, Path],
     compute_checksums: bool = True,
+    scale_extractor: Optional[ScaleExtractor] = None,
+    default_pixel_size_um: Optional[float] = None,
+    pixel_size_override_um: Optional[float] = None,
 ) -> Path:
     """
     Exports a comprehensive manifest.csv documenting every ingested image,
     file size, SHA-256 hash, dimensions, optical pixel size, and pair status.
+
+    Scale columns missing (or NaN) in ``manifest_df`` are filled using the run's effective
+    scale configuration: ``scale_extractor`` if given, else a ScaleExtractor built from
+    ``default_pixel_size_um`` / ``pixel_size_override_um`` (the CLI ``--pixel-size``). Pass
+    the same values the run used so the manifest never records a scale the run did not use.
     """
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    if scale_extractor is None:
+        kw: Dict[str, Any] = {}
+        if default_pixel_size_um is not None:
+            kw["default_pixel_size_um"] = default_pixel_size_um
+        scale_extractor = ScaleExtractor(cli_override_um=pixel_size_override_um, **kw)
+
+    def _missing(v: Any) -> bool:
+        if v is None:
+            return True
+        try:
+            return bool(pd.isna(v))
+        except (TypeError, ValueError):
+            return False
 
     rows = []
     for _, r in manifest_df.iterrows():
@@ -322,8 +363,12 @@ def export_complete_manifest(
         scale_src = r.get("scale_source")
         is_cal = r.get("is_calibrated")
 
-        if (scale_src is None or is_cal is None) and p.exists():
-            s_info = ScaleExtractor().extract(p)
+        pixel_size = None if _missing(pixel_size) else pixel_size
+        scale_src = None if _missing(scale_src) else scale_src
+        is_cal = None if _missing(is_cal) else is_cal
+
+        if (pixel_size is None or scale_src is None or is_cal is None) and p.exists():
+            s_info = scale_extractor.extract(p)
             if pixel_size is None:
                 pixel_size = s_info.pixel_size_um
             if scale_src is None:
@@ -343,9 +388,12 @@ def export_complete_manifest(
             "sha256": sha,
             "dimensions": shape_str,
             "bit_depth": dtype_str,
-            "pixel_size_um": pixel_size if pixel_size is not None else 1.518817,
+            "pixel_size_um": pixel_size if pixel_size is not None else scale_extractor.default_pixel_size_um,
             "scale_source": scale_src if scale_src is not None else "default_fallback",
-            "is_calibrated": bool(is_cal) if is_cal is not None else False,
+            "is_calibrated": (
+                is_cal.strip().lower() in ("true", "1", "yes") if isinstance(is_cal, str)
+                else bool(is_cal) if is_cal is not None else False
+            ),
             "is_matched_pair": r.get("is_matched_pair", False),
         })
 

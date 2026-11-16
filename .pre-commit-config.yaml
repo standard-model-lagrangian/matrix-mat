@@ -8,9 +8,10 @@ repos:
       - id: check-added-large-files
         args: ['--maxkb=1000']
 
+  # Pinned to the ruff version in requirements-lock.txt; rules come from pyproject [tool.ruff],
+  # the same settings CI uses (no ruff-format: CI does not enforce formatting).
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.8
+    rev: v0.17.2
     hooks:
       - id: ruff
         args: [--fix]
-      - id: ruff-format

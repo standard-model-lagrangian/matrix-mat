@@ -1,0 +1,11 @@
+{
+  "models": {
+    "cpsam_v2": {
+      "name": "cpsam_v2",
+      "url": "https://huggingface.co/mouseland/cellpose-sam/resolve/main/cpsam_v2",
+      "sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667",
+      "size_bytes": 1233586851,
+      "source_note": "SHA-256 and size match the Hugging Face LFS metadata (x-linked-etag / x-linked-size) for mouseland/cellpose-sam:cpsam_v2, checked 2026-10-24."
+    }
+  }
+}

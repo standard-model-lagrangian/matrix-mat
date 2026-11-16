@@ -14,17 +14,18 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 if "MPLCONFIGDIR" not in os.environ:
     os.environ["MPLCONFIGDIR"] = tempfile.gettempdir()
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from matrix_mat.reporting._figures import closes_new_figures
 
 logger = logging.getLogger("matrix_mat.reporting.biological_plots")
 
@@ -63,6 +64,7 @@ def density_figure_subtitle(summary_df: Optional[pd.DataFrame], control_material
     return "(Diamond=Mean, Line=Median; no hypothesis test computed)"
 
 
+@closes_new_figures
 def plot_nuclei_density_by_material(
     per_image_df: pd.DataFrame,
     output_dir: Path,
@@ -71,8 +73,8 @@ def plot_nuclei_density_by_material(
 ) -> Tuple[Path, Path]:
     """
     Figure 1: Cross-Material Nuclei Density Distribution.
-    Displays boxplot with individual field jitter scatter and non-parametric
-    hypothesis test (Mann-Whitney U) vs control Mat.
+    Displays boxplot with individual field jitter scatter; significance stars come from the
+    gel-level permutation test in ``summary_df`` (none are drawn without it).
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6), dpi=300)
@@ -82,9 +84,6 @@ def plot_nuclei_density_by_material(
     if "nuclei_per_mm2" not in per_image_df.columns:
         raise ValueError("per_image.csv lacks nuclei_per_mm2 (pre-0.2 run); re-run before plotting")
     dens_col = "nuclei_per_mm2"
-
-    # Get control data
-    ctrl_data = per_image_df[per_image_df["material"] == control_material][dens_col].dropna().values
 
     data_by_mat = []
     for m in present_materials:
@@ -104,7 +103,7 @@ def plot_nuclei_density_by_material(
         medianprops=dict(color="#2c3e50", linewidth=2.5),
     )
 
-    for patch, m in zip(bp1["boxes"], present_materials):
+    for patch, m in zip(bp1["boxes"], present_materials, strict=False):
         patch.set_facecolor(MATERIAL_PALETTE.get(m, "#95a5a6"))
         patch.set_alpha(0.65)
         patch.set_edgecolor("#2c3e50")
@@ -112,7 +111,7 @@ def plot_nuclei_density_by_material(
 
     rng = np.random.default_rng(42)
     max_y = 0.0
-    for i, m in enumerate(present_materials):
+    for i in range(len(present_materials)):
         vals = data_by_mat[i]
         if len(vals) == 0:
             continue
@@ -168,17 +167,18 @@ def plot_nuclei_density_by_material(
         showfliers=False,
         medianprops=dict(color="#2c3e50", linewidth=2.5),
     )
-    for patch, m in zip(bp2["boxes"], present_materials):
+    for patch, m in zip(bp2["boxes"], present_materials, strict=False):
         patch.set_facecolor(MATERIAL_PALETTE.get(m, "#95a5a6"))
         patch.set_alpha(0.65)
         patch.set_edgecolor("#2c3e50")
         patch.set_linewidth(1.5)
 
-    for i, m in enumerate(present_materials):
+    jitter_rng = np.random.default_rng(43)
+    for i in range(len(present_materials)):
         vals = data_by_mat[i]
         if len(vals) == 0:
             continue
-        jitter = np.random.normal(0, 0.06, size=len(vals))
+        jitter = jitter_rng.normal(0, 0.06, size=len(vals))
         ax2.scatter(
             positions[i] + jitter, vals,
             color="#2c3e50", alpha=0.75, s=50, zorder=4, edgecolor="white", linewidth=0.6
@@ -201,6 +201,7 @@ def plot_nuclei_density_by_material(
     return png_path, pdf_path
 
 
+@closes_new_figures
 def plot_clean_vs_all_density(
     per_image_df: pd.DataFrame,
     qc_flags_df: pd.DataFrame,
@@ -221,28 +222,35 @@ def plot_clean_vs_all_density(
 
     all_means, all_sds = [], []
     clean_means, clean_sds = [], []
+    clean_ns: List[int] = []
 
     if "nuclei_per_mm2" not in merged.columns:
         raise ValueError("per_image.csv lacks nuclei_per_mm2 (pre-0.2 run); re-run before plotting")
     dens_col = "nuclei_per_mm2"
     for m in present_materials:
         sub_all = merged[merged["material"] == m][dens_col].dropna()
-        sub_clean = merged[(merged["material"] == m) & (merged["flag_any"] == False)][dens_col].dropna()
+        sub_clean = merged[(merged["material"] == m) & (merged["flag_any"] == False)][dens_col].dropna()  # noqa: E712
 
-        all_means.append(float(sub_all.mean()) if len(sub_all) > 0 else 0.0)
+        # No data -> NaN (no bar drawn, labelled n=0); never substitute another group's mean.
+        all_means.append(float(sub_all.mean()) if len(sub_all) > 0 else float("nan"))
         all_sds.append(float(sub_all.std()) if len(sub_all) > 1 else 0.0)
 
-        clean_means.append(float(sub_clean.mean()) if len(sub_clean) > 0 else float(sub_all.mean()) if len(sub_all) > 0 else 0.0)
+        clean_ns.append(int(len(sub_clean)))
+        clean_means.append(float(sub_clean.mean()) if len(sub_clean) > 0 else float("nan"))
         clean_sds.append(float(sub_clean.std()) if len(sub_clean) > 1 else 0.0)
 
-    rects1 = ax.bar(
+    ax.bar(
         positions - width / 2, all_means, width, yerr=all_sds,
         label="All Cohort (Unfiltered)", color="#95a5a6", edgecolor="#7f8c8d", alpha=0.8, capsize=4
     )
-    rects2 = ax.bar(
+    ax.bar(
         positions + width / 2, clean_means, width, yerr=clean_sds,
         label="Clean Only (QC Outliers Excluded)", color="#27ae60", edgecolor="#1e8449", alpha=0.85, capsize=4
     )
+    for pos, n_clean in zip(positions, clean_ns, strict=False):
+        if n_clean == 0:
+            ax.text(pos + width / 2, 0.0, "n=0", ha="center", va="bottom", fontsize=9, color="#7f8c8d",
+                    transform=ax.get_xaxis_transform())
 
     ax.set_xticks(positions)
     ax.set_xticklabels(present_materials, fontweight="bold", fontsize=11)
@@ -261,6 +269,7 @@ def plot_clean_vs_all_density(
     return png_path, pdf_path
 
 
+@closes_new_figures
 def plot_nuclear_volume_distributions(
     objects_df: pd.DataFrame,
     output_dir: Path,
@@ -276,7 +285,7 @@ def plot_nuclear_volume_distributions(
 
     vols_by_mat = []
     for m in present_materials:
-        sub = objects_df[(objects_df["material"] == m) & (objects_df["excluded_border"] == False)][vol_col].dropna().values
+        sub = objects_df[(objects_df["material"] == m) & (objects_df["excluded_border"] == False)][vol_col].dropna().values  # noqa: E712
         vols_by_mat.append(sub)
 
     positions = np.arange(len(present_materials))
@@ -289,13 +298,13 @@ def plot_nuclear_volume_distributions(
         medianprops=dict(color="#d35400", linewidth=2.2),
     )
 
-    for patch, m in zip(bp["boxes"], present_materials):
+    for patch, m in zip(bp["boxes"], present_materials, strict=False):
         patch.set_facecolor(MATERIAL_PALETTE.get(m, "#bdc3c7"))
         patch.set_alpha(0.7)
         patch.set_edgecolor("#2c3e50")
 
     # Annotate counts and median values
-    for i, m in enumerate(present_materials):
+    for i in range(len(present_materials)):
         v = vols_by_mat[i]
         if len(v) > 0:
             med = float(np.median(v))

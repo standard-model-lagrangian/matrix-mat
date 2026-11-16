@@ -55,7 +55,7 @@ def test_objects_csv_has_scale_source_and_calibrated(tmp_path):
     assert "is_calibrated" in OBJECTS_CSV_COLUMNS
 
     # Create dummy mask and region property
-    img = np.zeros((100, 100), dtype=np.uint8)
+    _img = np.zeros((100, 100), dtype=np.uint8)
     lbl = np.zeros((100, 100), dtype=np.int32)
     lbl[40:60, 40:60] = 1
     props = skim_measure.regionprops(lbl)

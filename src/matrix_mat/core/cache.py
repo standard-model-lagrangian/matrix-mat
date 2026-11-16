@@ -1,7 +1,9 @@
 """
 Mask Disk Caching Module for Spheroid Segmentation.
-Provides lossless 16-bit PNG caching to eliminate redundant inference.
-Supports up to 65,535 distinct instance IDs per field of view.
+
+Masks are stored losslessly as 16-bit PNG (labels 0..65,535). Masks whose largest
+label exceeds 65,535 are stored as compressed ``.npz`` (int32/int64) instead, so
+no label is ever clipped. All writes (mask and metadata sidecar) are atomic.
 """
 
 from __future__ import annotations
@@ -9,11 +11,13 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
-from dataclasses import asdict, is_dataclass
-from pathlib import Path
 import tempfile
+from dataclasses import fields, is_dataclass
+from pathlib import Path
 from typing import Any, Dict, Optional, Union
+
 import cv2
 import numpy as np
 
@@ -27,6 +31,64 @@ NON_ALGORITHMIC_FIELDS = {
     "backend",
 }
 
+_PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+_NPZ_MAGIC = b"PK\x03\x04"
+_PNG_MAX_LABEL = 65535
+
+
+def _canonicalize(obj: Any, _depth: int = 0) -> Any:
+    """Convert a (possibly nested) config into plain JSON-serialisable data, deterministically.
+
+    Handles pydantic models, dataclasses, dicts, lists/tuples/sets, numpy scalars/arrays,
+    paths and floats (rounded to 6 d.p.; NaN/inf encoded as strings). Non-algorithmic
+    fields are dropped from every dataclass / model / mapping level.
+    """
+    if _depth > 50:
+        raise ValueError("Cache config nesting too deep (possible reference cycle)")
+    d = _depth + 1
+
+    def _mapping(m: Dict[Any, Any]) -> Dict[str, Any]:
+        out = {}
+        for k, v in m.items():
+            ks = str(k)
+            if ks in NON_ALGORITHMIC_FIELDS:
+                continue
+            out[ks] = _canonicalize(v, d)
+        return dict(sorted(out.items()))
+
+    if obj is None or isinstance(obj, (bool, str)):
+        return obj
+    if isinstance(obj, np.generic):
+        return _canonicalize(obj.item(), d)
+    if isinstance(obj, int):
+        return obj
+    if isinstance(obj, float):
+        if math.isnan(obj):
+            return "nan"
+        if math.isinf(obj):
+            return "inf" if obj > 0 else "-inf"
+        return round(obj, 6)
+    if isinstance(obj, Path):
+        return str(obj)
+    if hasattr(obj, "model_dump") and not isinstance(obj, type):
+        return {"__type__": type(obj).__name__, **_mapping(obj.model_dump())}
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return {
+            "__type__": type(obj).__name__,
+            **_mapping({f.name: getattr(obj, f.name) for f in fields(obj)}),
+        }
+    if isinstance(obj, dict):
+        return _mapping(obj)
+    if isinstance(obj, (list, tuple)):
+        return [_canonicalize(x, d) for x in obj]
+    if isinstance(obj, (set, frozenset)):
+        return sorted((_canonicalize(x, d) for x in obj), key=lambda x: json.dumps(x, sort_keys=True))
+    if isinstance(obj, np.ndarray):
+        return {"__ndarray__": [list(obj.shape), str(obj.dtype)], "data": _canonicalize(obj.tolist(), d)}
+    if hasattr(obj, "__dict__"):
+        return _mapping({k: v for k, v in vars(obj).items() if not k.startswith("_")})
+    return repr(obj)
+
 
 def compute_cache_key(
     image: np.ndarray | bytes,
@@ -36,45 +98,26 @@ def compute_cache_key(
 ) -> str:
     """
     Compute unique content-addressed cache key:
-    sha256(image bytes) || sha256(canonical JSON of segmentation params) || model weights sha256 || package version
+    sha256(image shape/dtype + bytes) || sha256(canonical JSON of config) || model weights sha256 || package version
+
+    ``config`` may be a dataclass, a pydantic model, a dict, or a list/tuple combining any of
+    these with plain values (e.g. ``{"seg": seg_cfg, "preprocess": pp_cfg, "pixel_size_um": 1.5}``).
     """
-    # 1. Image hash
+    # 1. Image hash (shape and dtype included so 3x4 and 4x3 arrays never collide)
+    h = hashlib.sha256()
     if isinstance(image, bytes):
-        img_bytes = image
+        h.update(b"bytes:")
+        h.update(image)
     elif isinstance(image, np.ndarray):
-        img_bytes = image.tobytes()
+        h.update(f"ndarray:{tuple(image.shape)}:{image.dtype.str}:".encode("utf-8"))
+        h.update(np.ascontiguousarray(image).tobytes())
     else:
         raise TypeError(f"Expected numpy array or bytes, got {type(image)}")
-    img_sha = hashlib.sha256(img_bytes).hexdigest()
+    img_sha = h.hexdigest()
 
-    # 2. Canonical JSON of segmentation parameters
-    if hasattr(config, "model_dump"):
-        cfg_dict = config.model_dump()
-    elif is_dataclass(config) and not isinstance(config, type):
-        cfg_dict = asdict(config)
-    elif isinstance(config, dict):
-        cfg_dict = dict(config)
-    elif hasattr(config, "__dict__"):
-        cfg_dict = dict(config.__dict__)
-    else:
-        cfg_dict = {}
-
-    filtered_params = {
-        k: v for k, v in cfg_dict.items()
-        if k not in NON_ALGORITHMIC_FIELDS
-    }
-
-    def _canon(obj):
-        if isinstance(obj, dict):
-            return {k: _canon(v) for k, v in sorted(obj.items())}
-        elif isinstance(obj, (list, tuple)):
-            return [_canon(x) for x in obj]
-        elif isinstance(obj, float):
-            return round(obj, 6)
-        return obj
-
-    canon_dict = _canon(filtered_params)
-    param_json = json.dumps(canon_dict, sort_keys=True, separators=(",", ":"))
+    # 2. Canonical JSON of algorithmic parameters
+    canon = _canonicalize(config) if config is not None else {}
+    param_json = json.dumps(canon, sort_keys=True, separators=(",", ":"))
     param_sha = hashlib.sha256(param_json.encode("utf-8")).hexdigest()
 
     # 3. Model weights hash
@@ -86,13 +129,26 @@ def compute_cache_key(
         package_version = matrix_mat.__version__
     pkg_sha = hashlib.sha256(str(package_version).encode("utf-8")).hexdigest()
 
-    # Combined composite SHA256 key
     combined = f"img:{img_sha}|params:{param_sha}|model:{model_sha}|pkg:{pkg_sha}"
     return hashlib.sha256(combined.encode("utf-8")).hexdigest()
 
 
+def _atomic_write_bytes(target: Path, data: bytes) -> None:
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".tmp_{target.name}_")
+    tmp_path = Path(tmp)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, target)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
 class MaskCache:
-    """Persistent lossless 16-bit PNG mask cache."""
+    """Persistent lossless label-mask cache (16-bit PNG, ``.npz`` for >65,535 labels)."""
 
     def __init__(self, cache_dir: Optional[Union[str, Path]] = None, enabled: bool = True):
         from matrix_mat.core.paths import resolve_cache_root
@@ -118,45 +174,90 @@ class MaskCache:
         return clean
 
     def get_cache_path(self, image_id: str) -> Path:
-        """Return the absolute path to the cached mask file for a given image ID."""
+        """Return the path of the PNG cache entry for a given image ID."""
         clean_id = self._sanitize_image_id(image_id)
         if not clean_id.endswith(".png"):
             clean_id = f"{clean_id}.png"
         return self.cache_dir / clean_id
 
+    def _npz_path(self, image_id: str) -> Path:
+        return self.get_cache_path(image_id).with_suffix(".npz")
+
+    def _meta_path(self, image_id: str) -> Path:
+        return self.get_cache_path(image_id).with_suffix(".meta.json")
+
+    @staticmethod
+    def _has_magic(path: Path, magic: bytes) -> bool:
+        try:
+            if not path.is_file() or path.stat().st_size <= len(magic):
+                return False
+            with open(path, "rb") as f:
+                return f.read(len(magic)) == magic
+        except OSError:
+            return False
+
+    def _existing_entry(self, image_id: str) -> Optional[Path]:
+        png = self.get_cache_path(image_id)
+        if self._has_magic(png, _PNG_MAGIC):
+            return png
+        npz = self._npz_path(image_id)
+        if self._has_magic(npz, _NPZ_MAGIC):
+            return npz
+        return None
+
+    def _drop(self, image_id: str) -> None:
+        for p in (self.get_cache_path(image_id), self._npz_path(image_id), self._meta_path(image_id)):
+            try:
+                p.unlink(missing_ok=True)
+            except OSError as e:  # pragma: no cover - permissions
+                logger.warning(f"Could not delete corrupt cache file {p}: {e}")
+
     def has(self, image_id: str) -> bool:
-        """Check whether a valid cached mask exists for the image ID."""
+        """Whether a cache entry with a valid file signature exists for the image ID.
+
+        A corrupt body that still passes the signature check is detected by :meth:`load`,
+        which deletes the entry and returns ``None``; ``has()`` is then False.
+        """
         if not self.enabled:
             return False
-        cache_path = self.get_cache_path(image_id)
-        return cache_path.exists() and cache_path.is_file() and cache_path.stat().st_size > 0
+        return self._existing_entry(image_id) is not None
 
     def load(self, image_id: str) -> Optional[np.ndarray]:
         """
-        Load cached 16-bit integer label mask from disk.
-        Returns int32 numpy array or None if cache miss / corrupt.
+        Load a cached integer label mask. Returns an int32 array (int64 if labels need it),
+        or None on a miss. Corrupt entries are deleted and reported as a miss.
         """
-        if not self.has(image_id):
+        if not self.enabled:
             return None
-
-        cache_path = self.get_cache_path(image_id)
+        path = self._existing_entry(image_id)
+        if path is None:
+            # A file without a valid signature is corrupt: remove it so has()/load() agree.
+            if self.get_cache_path(image_id).exists() or self._npz_path(image_id).exists():
+                logger.warning(f"Discarding corrupt cache entry for {image_id}")
+                self._drop(image_id)
+            return None
         try:
-            mask = cv2.imread(str(cache_path), cv2.IMREAD_UNCHANGED)
-            if mask is None:
-                logger.warning(f"Failed to decode cached mask image at {cache_path}")
-                return None
-            return mask.astype(np.int32)
+            if path.suffix == ".npz":
+                with np.load(path, allow_pickle=False) as z:
+                    mask = np.asarray(z["mask"])
+                if mask.ndim != 2:
+                    raise ValueError(f"cached mask has {mask.ndim} dims")
+                return mask.astype(np.int64 if mask.max(initial=0) > np.iinfo(np.int32).max else np.int32)
+            png = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+            if png is None:
+                raise ValueError("cv2 could not decode PNG")
+            return png.astype(np.int32)
         except Exception as e:
-            logger.warning(f"Error loading cached mask from {cache_path}: {e}")
+            logger.warning(f"Discarding corrupt cached mask at {path}: {e}")
+            self._drop(image_id)
             return None
 
     def load_meta(self, image_id: str) -> Dict[str, Any]:
         """Load cached metadata JSON from disk if available."""
         if not self.enabled:
             return {}
-        cache_path = self.get_cache_path(image_id)
-        meta_path = cache_path.with_suffix(".meta.json")
-        if meta_path.exists() and cache_path.exists():
+        meta_path = self._meta_path(image_id)
+        if meta_path.exists() and self._existing_entry(image_id) is not None:
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
                     return json.load(f)
@@ -171,55 +272,64 @@ class MaskCache:
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Path:
         """
-        Save labeled segmentation mask to disk as lossless 16-bit PNG using an atomic write pattern.
-        Optionally persists accompanying metadata dictionary as sidecar JSON.
-        Returns the saved file path.
+        Atomically save a 2-D integer label mask (16-bit PNG, or ``.npz`` when labels exceed
+        65,535). The metadata sidecar is written atomically; when ``metadata`` is empty any
+        stale sidecar from an earlier save is removed. Returns the saved file path.
         """
         if not self.enabled:
             return self.get_cache_path(image_id)
 
+        mask = np.asarray(mask)
+        if mask.ndim != 2:
+            raise ValueError(
+                f"MaskCache only stores 2-D label masks; got array with shape {mask.shape} (ndim={mask.ndim})"
+            )
+        if mask.size and not np.issubdtype(mask.dtype, np.integer) and not np.issubdtype(mask.dtype, np.bool_):
+            if not np.all(np.isfinite(mask)) or not np.all(np.equal(np.mod(mask, 1), 0)):
+                raise ValueError("MaskCache labels must be finite integers")
+        min_label = int(np.min(mask)) if mask.size else 0
+        max_label = int(np.max(mask)) if mask.size else 0
+        if min_label < 0:
+            raise ValueError(f"MaskCache labels must be non-negative; got minimum label {min_label}")
+
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        cache_path = self.get_cache_path(image_id)
+        png_path = self.get_cache_path(image_id)
+        npz_path = self._npz_path(image_id)
+        meta_path = self._meta_path(image_id)
 
-        # Convert to uint16 (handles 0..65535 labels)
-        mask_u16 = np.clip(mask, 0, 65535).astype(np.uint16)
+        # Remove the old sidecar first so a crash can never pair new pixels with stale flags.
+        meta_path.unlink(missing_ok=True)
 
-        with tempfile.NamedTemporaryFile(
-            dir=self.cache_dir,
-            prefix=f".tmp_{cache_path.stem}_",
-            suffix=".png",
-            delete=False,
-        ) as tmp_file:
-            tmp_path = Path(tmp_file.name)
+        if max_label <= _PNG_MAX_LABEL:
+            ok, buf = cv2.imencode(".png", mask.astype(np.uint16))
+            if not ok:
+                raise IOError(f"cv2.imencode failed to encode mask for {png_path}")
+            _atomic_write_bytes(png_path, buf.tobytes())
+            npz_path.unlink(missing_ok=True)
+            saved = png_path
+        else:
+            import io
+            dtype = np.int32 if max_label <= np.iinfo(np.int32).max else np.int64
+            bio = io.BytesIO()
+            np.savez_compressed(bio, mask=mask.astype(dtype))
+            _atomic_write_bytes(npz_path, bio.getvalue())
+            png_path.unlink(missing_ok=True)
+            saved = npz_path
+            logger.info(f"Mask {image_id} has {max_label} labels (>65,535): cached as .npz")
 
-        try:
-            success = cv2.imwrite(str(tmp_path), mask_u16)
-            if not success:
-                if tmp_path.exists():
-                    tmp_path.unlink()
-                raise IOError(f"cv2.imwrite failed to save mask at temporary path {tmp_path}")
-            os.replace(tmp_path, cache_path)
-            if metadata:
-                meta_path = cache_path.with_suffix(".meta.json")
-                with open(meta_path, "w", encoding="utf-8") as f:
-                    json.dump(metadata, f, indent=2, default=str)
-        except Exception as e:
-            if tmp_path.exists():
-                try:
-                    tmp_path.unlink()
-                except Exception:
-                    pass
-            raise e
+        if metadata:
+            payload = json.dumps(metadata, indent=2, default=str).encode("utf-8")
+            _atomic_write_bytes(meta_path, payload)
 
-        logger.debug(f"Saved mask cache to {cache_path} (shape: {mask.shape}, max_label: {int(np.max(mask))})")
-        return cache_path
+        logger.debug(f"Saved mask cache to {saved} (shape: {mask.shape}, max_label: {max_label})")
+        return saved
 
     def clear(self) -> int:
-        """Remove all cached PNG masks in cache directory. Returns count of deleted files."""
+        """Remove all cached masks (PNG and NPZ) and sidecars. Returns count of deleted masks."""
         if not self.cache_dir.exists():
             return 0
         count = 0
-        for p in self.cache_dir.glob("*.png"):
+        for p in list(self.cache_dir.glob("*.png")) + list(self.cache_dir.glob("*.npz")):
             try:
                 p.unlink()
                 count += 1

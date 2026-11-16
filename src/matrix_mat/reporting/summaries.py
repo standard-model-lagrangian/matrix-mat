@@ -1,9 +1,12 @@
 """
 Material-level aggregation and statistical summaries (all-data vs clean-only).
 
-Inference is at gel level: per-field planar densities are first averaged within each gel, and each
-material is compared with the control by an exact (or Monte Carlo) gel-label permutation test,
-Holm-adjusted across materials. Field-level means/SDs are reported as descriptive statistics only.
+Inference is at gel level: per-field planar densities are summarised by their MEDIAN within each gel,
+and each material is compared with the control by an exact (or Monte Carlo) gel-label permutation
+test whose statistic is the difference in the median of those gel medians; p-values are Holm-adjusted
+across materials. Field-level means/SDs and the mean/SD of per-gel means
+(``gel_mean_nuclei_per_mm2`` / ``gel_sd_nuclei_per_mm2``) are descriptive statistics only; they are
+not the tested quantity.
 """
 
 from __future__ import annotations
@@ -53,9 +56,10 @@ def compute_summary_by_material(
     Compute per-material summary metrics:
     - n_images_total, n_images_clean, n_gels, flagged_image_rate
     - field-level mean ± SD planar density (nuclei/mm2) for all and clean fields (descriptive)
-    - gel-level mean ± SD planar density (the inferential unit)
+    - mean ± SD of per-gel mean densities (descriptive; the permutation test instead compares
+      the median of per-gel median densities)
     - gel-level permutation p-value vs control, Holm-adjusted across materials
-    - median nuclear volume, mean spheroid volume
+    - median nuclear volume, mean spheroid area
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(per_image_rows)
@@ -128,7 +132,7 @@ def compute_summary_by_material(
         })
 
     tested = list(raw_p.keys())
-    adj = dict(zip(tested, adjust_pvalues([raw_p[m] for m in tested], method="holm"))) if tested else {}
+    adj = dict(zip(tested, adjust_pvalues([raw_p[m] for m in tested], method="holm"), strict=False)) if tested else {}
     for row in summary_rows:
         mat = row["material"]
         row["p_raw"] = raw_p.get(mat, float("nan"))

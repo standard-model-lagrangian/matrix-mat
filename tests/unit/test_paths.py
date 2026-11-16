@@ -97,7 +97,7 @@ def test_no_hardcoded_data_paths_in_package():
                         violations.append(f"{py_file.relative_to(repo_root)}:{line_no}: {clean_line}")
 
     assert not violations, (
-        f"Found hardcoded data paths in production code:\n" + "\n".join(violations)
+        "Found hardcoded data paths in production code:\n" + "\n".join(violations)
     )
 
 

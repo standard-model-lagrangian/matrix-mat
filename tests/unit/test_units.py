@@ -86,5 +86,5 @@ def test_single_volume_formula():
                     violating_lines.append(f"{py_file.relative_to(repo_root)}:{line_no}: {clean_line}")
 
     assert not violating_lines, (
-        f"Volume formula duplicated outside units.py:\n" + "\n".join(violating_lines)
+        "Volume formula duplicated outside units.py:\n" + "\n".join(violating_lines)
     )

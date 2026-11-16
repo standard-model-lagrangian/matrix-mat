@@ -29,6 +29,7 @@ def test_synthetic_if_matches_golden(tmp_path, pytestconfig):
 data_dir: "{data_dir}"
 runs_dir: "{tmp_path}/runs"
 allow_unpaired: true
+allow_uncalibrated: true
 overwrite: true
 random_seed: 42
 default_pixel_size_um: 0.505049
@@ -85,12 +86,10 @@ qc:
   edge_heavy_fraction: 0.25
   saturation_fraction_max: 0.005
   blur_abs_threshold: 50.0
-  duplicate_iou_threshold: 0.50
   outlier_iqr_factor: 1.5
 
 features:
   spheroid_extent_method: "actin_threshold"
-  actin_background_percentile: 50.0
 """
     config_file = tmp_path / "if_test_config.yaml"
     config_file.write_text(config_content, encoding="utf-8")

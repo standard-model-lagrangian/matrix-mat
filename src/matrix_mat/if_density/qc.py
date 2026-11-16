@@ -58,8 +58,10 @@ def deduplicate_masks(
     """
     Check for overlapping mask instances with IoU > iou_threshold.
     Deduplicates by discarding the smaller instance and keeping the larger.
-    Supports candidate proposals passed as a List[np.ndarray], a 3D boolean/integer
-    array of shape (N, H, W), or a 2D integer label image.
+    Candidate proposals must be passed as a List[np.ndarray] of per-object masks. A 2D integer label
+    image is a disjoint partition (each pixel has one label), so nothing can overlap and it is returned
+    unchanged: on label images this step is a no-op and must not be reported as applied.
+    3D arrays are rejected: a (Z, H, W) stack is not a list of candidates, and 3D input is unsupported.
 
     Returns (deduplicated_masks, n_duplicates_removed).
     """
@@ -69,8 +71,10 @@ def deduplicate_masks(
         h, w = masks[0].shape[:2]
         masks_list = [(m > 0) for m in masks]
     elif isinstance(masks, np.ndarray) and masks.ndim == 3:
-        n, h, w = masks.shape
-        masks_list = [(masks[i] > 0) for i in range(n)]
+        raise ValueError(
+            f"deduplicate_masks got a 3D array {masks.shape}; pass overlapping candidates as a list of 2D "
+            "masks (3D label volumes are not supported by the IF pipeline)"
+        )
     elif isinstance(masks, np.ndarray) and masks.ndim == 2:
         if masks.max() == 0:
             return masks.copy(), 0
@@ -180,14 +184,15 @@ def compute_image_qc_metrics(
     """Compute per-image numeric QC metrics and individual flags (except cohort-relative outlier flags)."""
     h, w = nuclear_img.shape[:2]
 
-    # 1. Saturation
-    nuc_sat = float(np.mean(nuclear_img >= 255))
-    act_sat = float(np.mean(actin_img >= 255))
+    # 1. Saturation: pixels at the maximum of the RAW image's dtype (255 for 8-bit, 65535 for 16-bit).
+    from matrix_mat.if_density.preprocess import dtype_max_value
+    nuc_sat = float(np.mean(nuclear_img >= dtype_max_value(nuclear_img)))
+    act_sat = float(np.mean(actin_img >= dtype_max_value(actin_img)))
     sat_thresh = float(qc_config.get("saturation_fraction_max", 0.005))
     flag_saturated = (nuc_sat > sat_thresh) or (act_sat > sat_thresh)
 
     # 2. Focus / Blur (Laplacian variance)
-    lap_var = float(cv2.Laplacian(nuclear_img, cv2.CV_64F).var())
+    lap_var = float(cv2.Laplacian(np.ascontiguousarray(nuclear_img), cv2.CV_64F).var())
 
     # 3. SNR (Signal to Background Ratio)
     p50 = float(np.percentile(nuclear_img, 50))
@@ -203,7 +208,6 @@ def compute_image_qc_metrics(
         n_nuclei_valid = n_dedup - n_border_excluded
 
     flag_empty_seg = (n_dedup == 0) and (snr >= snr_thresh)
-    dup_thresh = float(qc_config.get("duplicate_iou_threshold", 0.50))
     flag_dup_masks = n_dups_removed > 0
 
     # 5. Mask size / debris / merged & edge touching

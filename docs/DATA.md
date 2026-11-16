@@ -42,8 +42,16 @@ The parser (`matrix_mat.core.naming.parse_image_filename`) expects
 - **gel** `<G>`: the biological replicate. This is the unit of statistical inference.
 - **FOV**: zero-padded field of view within the gel.
 
+The whole name must match. Tokens may be separated by spaces or underscores (`Day0_Mat_gel1_0001_TRANS.tif`).
+Names are normalised: the control is always spelled `Mat` (`mat`, `MAT`), `S<n>D<n>` conditions are
+upper-cased and joined (`S34 D30` and `s34d30` become `S34D30`), `gel01` becomes `gel1`, and FOV numbers
+are zero-padded to four digits (`001` becomes `0001`).
+
 Day 0 and Day 7 objects are paired within the same `(Condition, gel, FOV)`. A filename that does not match
-raises an error; there is no default gel or FOV.
+raises `ValueError`; there is no default gel or FOV. These names are also rejected:
+
+- file-manager copies such as `… _TRANS (1).tif` or `… _TRANS copy.tif` (they would pair twice);
+- conditions that cannot be resolved unambiguously, such as `Mat+drug` or `Mat extra`.
 
 ### Immunofluorescence (IF)
 
@@ -60,7 +68,16 @@ before testing.
 
 Accurate physical scale extraction is mandatory for morphological measurement:
 - **EVOS TIFF Tag 37510**: The pipeline inspects Tag 37510 JSON metadata (`Target.PixelSize` or `MicronsPerPixel`). Valid objective scales typically range between 0.05 and 20.0 $\mu\mathrm{m/pixel}$ (e.g. 1.518817 $\mu\mathrm{m/px}$ for 4× EVOS air objective, 0.505049 $\mu\mathrm{m/px}$ for 20× objective).
-- **Fallback Policy**: If metadata is absent and no CLI override (`--pixel-size`) is provided, uncalibrated runs are halted unless explicitly permitted via `--force-uncalibrated`.
+- **OME-XML** (ImageDescription): `PhysicalSizeX` in `PhysicalSizeXUnit` (default µm), any OME schema year,
+  with or without a leading Bio-Formats comment.
+- **ImageJ / Fiji**: `pixelWidth`, or (the usual case) XResolution in pixels per ImageJ `unit` with TIFF
+  ResolutionUnit NONE. The unit (`um`, `micron`, `µm`, `nm`, `mm`, `cm`, `inch`, …) is converted to µm;
+  `unit=pixel` means uncalibrated.
+- **TIFF resolution tags** in pixels per cm or per inch.
+- **Rejected values**: 72/96 DPI screen defaults and values outside 0.05–20 µm/px are never used. The configured
+  default pixel size is used instead, with `is_calibrated = False` and a `scale_source` naming the reason
+  (e.g. `config_default_uncalibrated (72 DPI screen default)`).
+- **Fallback Policy**: If metadata is absent and no CLI override (`--pixel-size`, must be > 0) is provided, uncalibrated runs are halted unless explicitly permitted via `--force-uncalibrated`.
 
 ---
 

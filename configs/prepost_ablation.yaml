@@ -6,6 +6,10 @@ allow_unpaired: true
 overwrite: false
 random_seed: 42
 default_pixel_size_um: 0.5050492474122553
+# Refuse fields without embedded scale metadata (all shipped data are calibrated).
+allow_uncalibrated: false
+# Cross-run comparison run after the sweep: prepost | generic
+comparator: "prepost"
 
 model:
   pretrained_model: "${MODELS_ROOT}/cpsam_v2"
@@ -75,7 +79,6 @@ combos:
         max_vol_um3: 3364.0
       splitting:
         enabled: true
-        method: "seeded_watershed"
         split_factor: 2.0
         h_maxima: 10.0
         min_distance_um: 4.0
@@ -117,7 +120,6 @@ combos:
         max_vol_um3: 3364.0
       splitting:
         enabled: true
-        method: "seeded_watershed"
         split_factor: 2.0
         h_maxima: 10.0
         min_distance_um: 4.0
@@ -137,9 +139,7 @@ qc:
   # falls below it. Confirm by visual review before relying on it.
   blur_mode: "absolute"
   blur_abs_threshold: 150.0
-  duplicate_iou_threshold: 0.50
   outlier_iqr_factor: 1.5
 
 features:
   spheroid_extent_method: "actin_threshold"
-  actin_background_percentile: 50.0

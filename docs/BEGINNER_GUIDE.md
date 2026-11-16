@@ -134,7 +134,7 @@ Nothing is dropped silently: every object stays in `objects.csv` with its flag.
 
 ### `summary/summary_by_material.csv` (IF)
 
-- `gel_mean_nuclei_per_mm2`: mean density per gel, averaged over gels. This is the number that is compared.
+- `gel_mean_nuclei_per_mm2`: mean density per gel, averaged over gels (descriptive). The gel-level permutation test compares a slightly different number: the median density per gel, then the median over gels.
 - `mean_nuclei_per_mm2_all` / `_clean`: field-level means for all fields, and for fields without QC flags. Descriptive.
 - `p_raw`, `p_adj`, `min_achievable_p`, `significance`: as above. Materials with a single gel are `untested`.
 

@@ -10,17 +10,24 @@ to prevent unreproducible or invalid runs.
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List
 
 import numpy as np
 import tifffile
 
 from matrix_mat.brightfield.config import PipelineConfig
+from matrix_mat.brightfield.io import list_tiff_files
 from matrix_mat.core.scale import ScaleExtractor
 
 logger = logging.getLogger("matrix_mat.brightfield.preflight")
+
+UNCALIBRATED_CONSEQUENCE = (
+    "Objects from uncalibrated images are flagged REVIEW (excluded from PASS-only statistics) unless "
+    "you pass --pixel-size <um/px> to assert the scale, or --allow-uncalibrated to accept the default scale."
+)
 
 
 @dataclasses.dataclass
@@ -83,6 +90,30 @@ class PreflightAuditor:
     def __init__(self, config: PipelineConfig):
         self.config = config
 
+    def _check_segmentation_models(self, stats: Dict[str, Any]) -> List[str]:
+        """Warn early when a configured Cellpose backend cannot run (missing package or weights)."""
+        seg = self.config.segmentation
+        backends = [seg.primary_backend]
+        if seg.fallback_policy == "per_image":
+            backends += [seg.fallback_backend, seg.last_resort_backend]
+        problems: List[str] = []
+        if any(b in ("cpsam", "cpdino") for b in backends):
+            if importlib.util.find_spec("cellpose") is None:
+                problems.append(
+                    f"Segmentation backend(s) {sorted(set(b for b in backends if b != 'classical'))} need the "
+                    "'cellpose' package, which is not importable; install the deep-learning extras or use "
+                    "segmentation.primary_backend: classical. The run will abort at the first image."
+                )
+        if "cpsam" in backends:
+            weights = Path(seg.cpsam_model_path)
+            if not weights.is_file():
+                problems.append(
+                    f"Cellpose-SAM weights not found at '{weights}'. Run 'python tools/fetch_models.py' "
+                    "(or set segmentation.cpsam_model_path). The run will abort at the first image."
+                )
+        stats["model_check"] = "OK" if not problems else "PROBLEMS"
+        return problems
+
     def run_preflight_check(self) -> PreflightReport:
         """Executes full suite of preflight sanity checks."""
         fatal_errors: List[str] = []
@@ -100,7 +131,7 @@ class PreflightAuditor:
                 "Verify path in configuration under 't0_dir'."
             )
         else:
-            t0_files = sorted(list(t0_dir.glob("*.tif")) + list(t0_dir.glob("*.tiff")))
+            t0_files = list_tiff_files(t0_dir)
             if not t0_files:
                 fatal_errors.append(
                     f"Day 0 directory '{t0_dir.resolve()}' contains zero .tif/.tiff images."
@@ -113,7 +144,7 @@ class PreflightAuditor:
                 "Verify path in configuration under 't7_dir'."
             )
         else:
-            t7_files = sorted(list(t7_dir.glob("*.tif")) + list(t7_dir.glob("*.tiff")))
+            t7_files = list_tiff_files(t7_dir)
             if not t7_files:
                 fatal_errors.append(
                     f"Day 7 directory '{t7_dir.resolve()}' contains zero .tif/.tiff images."
@@ -162,23 +193,27 @@ class PreflightAuditor:
         t7_keys: Dict[str, Path] = {}
         conditions_found = set()
 
-        for p in t0_files:
-            try:
-                info = parse_image_filename(p, source_dir_timepoint="Day0")
-                key = info["pair_key"]
-                t0_keys[key] = p
-                conditions_found.add(info["condition"])
-            except ValueError:
-                t0_keys[p.stem] = p
+        duplicate_keys: List[str] = []
+        for files, keys, day in ((t0_files, t0_keys, "Day0"), (t7_files, t7_keys, "Day7")):
+            for p in files:
+                try:
+                    info = parse_image_filename(p, source_dir_timepoint=day)
+                    key = info["pair_key"]
+                    conditions_found.add(info["condition"])
+                except ValueError:
+                    key = p.stem
+                if key in keys:
+                    duplicate_keys.append(f"{day}:{key} ({keys[key].name} vs {p.name})")
+                    continue  # keep the first file, as build_manifest does
+                keys[key] = p
 
-        for p in t7_files:
-            try:
-                info = parse_image_filename(p, source_dir_timepoint="Day7")
-                key = info["pair_key"]
-                t7_keys[key] = p
-                conditions_found.add(info["condition"])
-            except ValueError:
-                t7_keys[p.stem] = p
+        if duplicate_keys:
+            warnings.append(
+                f"Found {len(duplicate_keys)} duplicate FOV key(s) (several files map to the same "
+                f"condition/gel/FOV/timepoint); only the first file of each is used: "
+                f"{'; '.join(duplicate_keys[:5])}"
+            )
+        stats["duplicate_keys"] = duplicate_keys
 
         matched_keys = set(t0_keys.keys()) & set(t7_keys.keys())
         singleton_t0 = set(t0_keys.keys()) - set(t7_keys.keys())
@@ -244,17 +279,22 @@ class PreflightAuditor:
             stats["scale_source_summary"] = f"Uncalibrated Fallback ({self.config.default_pixel_size_um:.6f} um/px)"
             warnings.append(
                 f"TIFF optical scale tag (37510) not detected in any files ({uncalibrated_count} uncalibrated). "
-                f"Pipeline will assume default {self.config.default_pixel_size_um:.6f} um/pixel."
+                f"Pipeline will assume default {self.config.default_pixel_size_um:.6f} um/pixel. "
+                f"{UNCALIBRATED_CONSEQUENCE}"
             )
         else:
             stats["scale_source_summary"] = f"Mixed ({calibrated_count} calibrated, {uncalibrated_count} uncalibrated)"
             sample_uncal = ", ".join(uncalibrated_names[:3])
             warnings.append(
                 f"Found {uncalibrated_count} uncalibrated files lacking optical scale tags (e.g. {sample_uncal}). "
-                f"Pipeline will assume default {self.config.default_pixel_size_um:.6f} um/pixel for these files."
+                f"Pipeline will assume default {self.config.default_pixel_size_um:.6f} um/pixel for these files. "
+                f"{UNCALIBRATED_CONSEQUENCE}"
             )
 
-        # 6. Hardware Acceleration
+        # 6. Segmentation model availability (Cellpose backends)
+        warnings.extend(self._check_segmentation_models(stats))
+
+        # 7. Hardware Acceleration
         try:
             import torch
             if torch.cuda.is_available():

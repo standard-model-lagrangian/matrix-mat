@@ -6,6 +6,10 @@ allow_unpaired: true
 overwrite: false
 random_seed: 42
 default_pixel_size_um: 0.5050492474122553
+# Refuse fields without embedded scale metadata (all shipped data are calibrated).
+allow_uncalibrated: false
+# Cross-run comparison run after the sweep: prepost | generic
+comparator: "prepost"
 
 model:
   pretrained_model: "${MODELS_ROOT}/cpsam_v2"
@@ -39,7 +43,6 @@ postprocessing:
     max_vol_um3: 3364.0
   splitting:
     enabled: true
-    method: "seeded_watershed"
     split_factor: 2.0
     h_maxima: 10.0
     min_distance_um: 4.0
@@ -80,13 +83,14 @@ combos:
 
   - slug: "204_D_3d_pp"
     name: "D_3d_pp"
-    description: "Volumetric mode with winning PP11 stack (stitch_threshold=0.7, do_3D=true)"
+    # 3D/stitching is not supported on single-plane 2D inputs; kept as a 2D control equal to 201.
+    description: "Historical 3D slot with PP11 stack, now a 2D control identical to A_baseline_pp"
     flow_threshold: 0.4
     cellprob_threshold: 0.0
     diameter: null
     min_size: 15
-    stitch_threshold: 0.7
-    do_3D: true
+    stitch_threshold: 0.0
+    do_3D: false
 
 qc:
   snr_min: 1.5
@@ -100,9 +104,7 @@ qc:
   # falls below it. Confirm by visual review before relying on it.
   blur_mode: "absolute"
   blur_abs_threshold: 150.0
-  duplicate_iou_threshold: 0.50
   outlier_iqr_factor: 1.5
 
 features:
   spheroid_extent_method: "actin_threshold"
-  actin_background_percentile: 50.0

@@ -12,6 +12,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
+import tempfile
 import urllib.request
 from typing import Dict, Any, Optional
 
@@ -36,49 +37,87 @@ def load_lock_file(lock_path: Path) -> Dict[str, Any]:
         return json.load(f)
 
 
+DOWNLOAD_TIMEOUT_S = 60.0
+
+
+def _check_pin(model_name: str, model_info: Dict[str, Any]) -> Optional[str]:
+    """Return the pinned sha256, or None (after printing INVALID) when the entry has none."""
+    expected_sha = (model_info or {}).get("sha256")
+    if not expected_sha:
+        print(f"[-] {model_name}: INVALID lock entry (no sha256 pinned); refusing to trust or download it.")
+        return None
+    return str(expected_sha)
+
+
+def _size_ok(model_name: str, model_info: Dict[str, Any], path: Path) -> bool:
+    size = model_info.get("size_bytes")
+    if size is None:
+        return True
+    actual = path.stat().st_size
+    if int(size) != actual:
+        print(f"[-] {model_name}: INVALID size {actual} bytes, expected {int(size)} bytes")
+        return False
+    return True
+
+
 def verify_model(model_name: str, model_info: Dict[str, Any], models_dir: Path) -> bool:
-    """Verify that a model exists and matches its pinned SHA-256."""
+    """Verify that a model exists and matches its pinned SHA-256 (and size, if pinned). Fails closed."""
     target_path = models_dir / model_name
+    expected_sha = _check_pin(model_name, model_info)
+    if expected_sha is None:
+        return False
     if not target_path.exists():
-        print(f"[-] {model_name}: MISSING at {target_path}")
+        print(f"[-] {model_name}: INVALID (missing at {target_path})")
+        return False
+    if not _size_ok(model_name, model_info, target_path):
         return False
 
-    expected_sha = model_info.get("sha256")
     actual_sha = compute_sha256(target_path)
-    if expected_sha and actual_sha.lower() != expected_sha.lower():
-        print(f"[-] {model_name}: SHA-256 MISMATCH! Expected {expected_sha}, got {actual_sha}")
+    if actual_sha.lower() != expected_sha.lower():
+        print(f"[-] {model_name}: INVALID SHA-256 mismatch! Expected {expected_sha}, got {actual_sha}")
         return False
 
     print(f"[+] {model_name}: VALID (SHA-256: {actual_sha[:16]}...)")
     return True
 
 
-def fetch_model(model_name: str, model_info: Dict[str, Any], models_dir: Path) -> bool:
-    """Fetch model from URL if missing and verify SHA-256."""
+def fetch_model(
+    model_name: str,
+    model_info: Dict[str, Any],
+    models_dir: Path,
+    timeout: float = DOWNLOAD_TIMEOUT_S,
+) -> bool:
+    """Fetch a pinned model if missing/invalid and verify it.
+
+    The download goes to a temporary file in ``models_dir`` that is only moved into place
+    (``os.replace``) after the size and SHA-256 checks pass; any failure or interruption
+    (including Ctrl-C) removes the partial file.
+    """
+    expected_sha = _check_pin(model_name, model_info)
+    if expected_sha is None:
+        return False
+
     models_dir.mkdir(parents=True, exist_ok=True)
     target_path = models_dir / model_name
 
-    expected_sha = model_info.get("sha256", "")
     if target_path.exists():
-        actual_sha = compute_sha256(target_path)
-        if expected_sha and actual_sha.lower() == expected_sha.lower():
+        if compute_sha256(target_path).lower() == expected_sha.lower():
             print(f"[+] {model_name}: Already exists and verified.")
             return True
-        else:
-            print(f"[!] {model_name}: Exists but hash mismatch, re-downloading...")
-            target_path.unlink()
+        print(f"[!] {model_name}: Exists but hash mismatch, re-downloading...")
 
     url = model_info.get("url")
     if not url:
         print(f"[-] {model_name}: No download URL in lockfile.")
         return False
 
+    fd, tmp_name = tempfile.mkstemp(dir=models_dir, prefix=f".{model_name}.", suffix=".part")
+    tmp_path = Path(tmp_name)
     print(f"[*] Downloading {model_name} from {url} to {target_path}...")
     try:
-        # Stream download with progress
         req = urllib.request.Request(url, headers={"User-Agent": "matrix-mat"})
-        with urllib.request.urlopen(req) as resp, open(target_path, "wb") as out_f:
-            total_size = int(resp.headers.get("content-length", 0))
+        with urllib.request.urlopen(req, timeout=timeout) as resp, os.fdopen(fd, "wb") as out_f:
+            total_size = int(resp.headers.get("content-length", 0) or 0)
             downloaded = 0
             while chunk := resp.read(1024 * 1024):
                 out_f.write(chunk)
@@ -87,17 +126,24 @@ def fetch_model(model_name: str, model_info: Dict[str, Any], models_dir: Path) -
                     pct = (downloaded / total_size) * 100.0
                     print(f"\rDownloading: {pct:.1f}% ({downloaded / (1024*1024):.1f} MB)", end="", flush=True)
         print()
+
+        if not _size_ok(model_name, model_info, tmp_path):
+            tmp_path.unlink(missing_ok=True)
+            return False
+        actual_sha = compute_sha256(tmp_path)
+        if actual_sha.lower() != expected_sha.lower():
+            print(f"[-] SHA-256 verification failed! Expected {expected_sha}, got {actual_sha}")
+            tmp_path.unlink(missing_ok=True)
+            return False
+        os.replace(tmp_path, target_path)
     except Exception as e:
         print(f"[-] Download failed: {e}")
-        if target_path.exists():
-            target_path.unlink()
+        tmp_path.unlink(missing_ok=True)
         return False
-
-    actual_sha = compute_sha256(target_path)
-    if expected_sha and actual_sha.lower() != expected_sha.lower():
-        print(f"[-] SHA-256 verification failed! Expected {expected_sha}, got {actual_sha}")
-        target_path.unlink()
-        return False
+    except BaseException:
+        # KeyboardInterrupt / SystemExit: never leave a partial file behind.
+        tmp_path.unlink(missing_ok=True)
+        raise
 
     print(f"[+] {model_name} successfully downloaded and verified.")
     return True

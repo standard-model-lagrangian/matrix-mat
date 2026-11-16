@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import itertools
 import math
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, List, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 
@@ -59,8 +59,12 @@ def hierarchical_bootstrap_ci(
     if n_clusters == 0:
         return np.nan, np.nan
 
-    # Group data by cluster for fast lookup
-    cluster_data = {c: df[df[cluster_col] == c][value_col].dropna().values for c in clusters}
+    # Group data by cluster for fast lookup (non-finite observations dropped)
+    def _finite(c: Any) -> np.ndarray:
+        v = pd.to_numeric(df.loc[df[cluster_col] == c, value_col], errors="coerce").to_numpy(dtype=float)
+        return v[np.isfinite(v)]
+
+    cluster_data = {c: _finite(c) for c in clusters if not pd.isna(c)}
     # Filter out empty clusters
     cluster_data = {c: vals for c, vals in cluster_data.items() if len(vals) > 0}
     active_clusters = list(cluster_data.keys())
@@ -123,8 +127,18 @@ def cluster_permutation_test(
             return np.nan, np.nan
         chosen_target = non_ref_groups[0]
 
+    # Drop non-finite observations first, so a cluster of only NaN values disappears instead of
+    # producing a NaN median (which makes every |diff| comparison False and p collapse to 0).
+    vals_num = pd.to_numeric(df[value_col], errors="coerce")
+    finite_df = df.loc[np.isfinite(vals_num.to_numpy(dtype=float))].copy()
+    finite_df[value_col] = vals_num[finite_df.index].astype(float)
+    finite_df = finite_df.dropna(subset=[cluster_col])
+    if finite_df.empty:
+        return np.nan, np.nan
+
     # Aggregate to cluster-level medians first
-    cluster_df = summarise_by_unit(df, value_col, unit_cols=(group_col, cluster_col), agg="median")
+    cluster_df = summarise_by_unit(finite_df, value_col, unit_cols=(group_col, cluster_col), agg="median")
+    cluster_df = cluster_df[np.isfinite(cluster_df["val_median"].to_numpy(dtype=float))]
     ref_clusters = cluster_df[cluster_df[group_col] == ref_group]
     treat_clusters = cluster_df[cluster_df[group_col] == chosen_target]
 
@@ -132,7 +146,8 @@ def cluster_permutation_test(
     n_treat = len(treat_clusters)
     n_total = n_ref + n_treat
 
-    if n_ref == 0 or n_treat == 0:
+    # A cluster-level permutation test needs at least two clusters in each group.
+    if n_ref < 2 or n_treat < 2:
         return np.nan, np.nan
 
     obs_ref = np.median(ref_clusters["val_median"].values)
@@ -231,7 +246,7 @@ def paired_volume_change_test(
     from scipy import stats
     v0_arr = np.asarray(v0, dtype=float)
     v7_arr = np.asarray(v7, dtype=float)
-    valid = (~np.isnan(v0_arr)) & (~np.isnan(v7_arr))
+    valid = np.isfinite(v0_arr) & np.isfinite(v7_arr)
     v0_arr, v7_arr = v0_arr[valid], v7_arr[valid]
     if len(v0_arr) < 3:
         return np.nan
@@ -248,6 +263,10 @@ def paired_volume_change_test(
 def compute_mwu_pvalue(vals: np.ndarray, ctrl_data: np.ndarray) -> Tuple[float, str]:
     """Computes Mann-Whitney U test p-value and significance stars vs control."""
     from scipy import stats
+    vals = np.asarray(vals, dtype=float)
+    ctrl_data = np.asarray(ctrl_data, dtype=float)
+    vals = vals[np.isfinite(vals)]
+    ctrl_data = ctrl_data[np.isfinite(ctrl_data)]
     if len(vals) < 2 or len(ctrl_data) < 2:
         return float("nan"), "ns"
     try:

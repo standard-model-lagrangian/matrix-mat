@@ -17,7 +17,6 @@ from pydantic.dataclasses import dataclass
 from pydantic import ConfigDict, model_validator
 
 from matrix_mat.core.paths import (
-    expand_root_placeholders,
     resolve_data_root,
     resolve_output_root,
     resolve_models_root,
@@ -69,7 +68,12 @@ class SegmentationConfig:
     watershed_min_distance_px: int = 25
     single_mask_max_area_pct: float = 0.25
     border_margin_px: int = 15
-    device: str = "cpu"
+    # 'auto' selects CUDA > MPS > CPU; 'cpu', 'cuda', 'cuda:N' or 'mps' force a device.
+    device: str = "auto"
+    # Classical backend gates (previously hard-coded).
+    classical_min_d_um: float = 40.0
+    classical_min_contrast: float = 0.10
+    classical_ring_width_px: int = 15
     decisions_log_path: str = field(default_factory=lambda: str(resolve_output_root() / "decisions.jsonl"))
 
     @model_validator(mode="before")
@@ -120,6 +124,7 @@ class SegmentationConfig:
                 )
         if self.fallback_policy not in ("strict", "per_image"):
             raise ValueError(f"segmentation.fallback_policy must be 'strict' or 'per_image', got {self.fallback_policy!r}")
+        # device is validated when a Cellpose backend resolves it (segment.get_optimal_device).
         # Env variable overrides
         if os.environ.get("MATRIX_MAT_CACHE_DIR") and self.cache_dir in ("masks", str(resolve_cache_root())):
             self.cache_dir = os.environ["MATRIX_MAT_CACHE_DIR"]
@@ -149,6 +154,13 @@ class QCConfig:
     max_eccentricity: float = 0.82
     max_objects_per_fov: int = 0
     require_calibration: bool = True
+    # Cross-FOV duplicate removal. Assumes different FOV numbers of one (condition, gel, timepoint)
+    # can be z-planes of the same physical field, so objects at (nearly) the same pixel position
+    # are the same spheroid. Disable when FOVs are distinct fields of the well.
+    dedup_cross_fov: bool = True
+    # Maximum centroid distance (um) for two objects in different FOVs to count as duplicates.
+    # Default equals the historical 35 px at the default 1.518817 um/px scale.
+    dedup_max_distance_um: float = 35.0 * 1.518817
 
     @model_validator(mode="before")
     @classmethod
@@ -356,6 +368,36 @@ class ArtifactConfig:
         return asdict(self)
 
 
+_SHARED_GATE_FIELDS = ("min_t0_d_um_denominator", "min_fold_change", "max_fold_change")
+_GATE_DEFAULTS = {"min_t0_d_um_denominator": 60.0, "min_fold_change": 0.10, "max_fold_change": 20.0}
+
+
+def _expand_placeholder_string(value: str) -> str:
+    """Substitute ${DATA_ROOT}/${OUTPUT_ROOT}/${MODELS_ROOT}/${CACHE_ROOT} and $ENV vars in one string."""
+    if "$" not in value:
+        return value
+    roots = {
+        "DATA_ROOT": resolve_data_root(),
+        "OUTPUT_ROOT": resolve_output_root(),
+        "MODELS_ROOT": resolve_models_root(),
+        "CACHE_ROOT": resolve_cache_root(),
+    }
+    for name, root in roots.items():
+        value = value.replace("${" + name + "}", str(root))
+    return os.path.expandvars(value)
+
+
+def _expand_placeholders_in_values(obj: Any) -> Any:
+    """Recursively expand root placeholders in the string values of parsed YAML data."""
+    if isinstance(obj, dict):
+        return {k: _expand_placeholders_in_values(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_expand_placeholders_in_values(v) for v in obj]
+    if isinstance(obj, str):
+        return _expand_placeholder_string(obj)
+    return obj
+
+
 def _deep_update_config_dict(target: Dict[str, Any], overrides: Dict[str, Any]) -> None:
     """Recursively updates configuration dictionary from nested overrides."""
     for k, v in overrides.items():
@@ -389,6 +431,7 @@ class PipelineConfig:
     artifacts: ArtifactConfig = field(default_factory=ArtifactConfig)
 
     def __post_init__(self):
+        self._reconcile_stats_and_pairing()
         if os.environ.get("MATRIX_MAT_OUTPUT_ROOT") and self.output_dir in ("output", str(resolve_output_root())):
             self.output_dir = os.environ["MATRIX_MAT_OUTPUT_ROOT"]
         if os.environ.get("MATRIX_MAT_DATA_ROOT"):
@@ -398,6 +441,36 @@ class PipelineConfig:
             if self.t7_dir == "data/brightfield/Day7":
                 self.t7_dir = str(data_root / "brightfield" / "Day7")
 
+    def _reconcile_stats_and_pairing(self) -> None:
+        """Single source of truth for the denominator / fold-change gates.
+
+        The gates are applied in ``pair.py`` from ``PairingConfig``. Values set under ``stats:``
+        (where the shipped YAML documents them) are propagated to ``pairing``; if both sections set
+        a non-default value and they disagree, configuration fails loudly. Afterwards both sections
+        hold identical values.
+        """
+        if not isinstance(self.stats, StatsConfig) or not isinstance(self.pairing, PairingConfig):
+            return
+        for name in _SHARED_GATE_FIELDS:
+            default = _GATE_DEFAULTS[name]
+            s_val = getattr(self.stats, name)
+            p_val = getattr(self.pairing, name)
+            s_set = s_val is not None and float(s_val) != default
+            p_set = p_val is not None and float(p_val) != default
+            if s_set and p_set and float(s_val) != float(p_val):
+                raise ValueError(
+                    f"Conflicting values for '{name}': stats.{name}={s_val} vs pairing.{name}={p_val}. "
+                    "Set it in one section only (pairing.* is canonical)."
+                )
+            value = float(s_val) if (s_set and not p_set) else float(p_val)
+            setattr(self.pairing, name, value)
+            setattr(self.stats, name, value)
+        # Keep the deprecated alias copies in sync with the canonical values.
+        self.pairing.min_denominator_d0_um = self.pairing.min_t0_d_um_denominator
+        self.pairing.fold_change_min_review = self.pairing.min_fold_change
+        self.pairing.fold_change_max_review = self.pairing.max_fold_change
+        self.stats.min_denominator_d0_um = self.stats.min_t0_d_um_denominator
+
     @classmethod
     def from_yaml(cls, yaml_path: str | Path, cli_overrides: Optional[Dict[str, Any]] = None) -> PipelineConfig:
         """Load configuration from YAML file, filling defaults and applying CLI overrides."""
@@ -406,8 +479,9 @@ class PipelineConfig:
         if yaml_path.exists():
             with open(yaml_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            content = expand_root_placeholders(content)
-            data = yaml.safe_load(content) or {}
+            # Parse first, then substitute root placeholders in string values only, so Windows
+            # backslash paths are never re-interpreted as YAML escapes.
+            data = _expand_placeholders_in_values(yaml.safe_load(content) or {})
         else:
             logger.warning(f"Config file {yaml_path} not found. Using default parameters.")
 

@@ -24,7 +24,9 @@ def _materialise(config_name: str, tmp_path: Path) -> Path:
     data = yaml.safe_load((REPO_ROOT / "configs" / config_name).read_text())
     data["data_dir"] = str(FIXTURE)
     data["runs_dir"] = str(tmp_path / "runs")
-    # Keep the comparator dispatch (chosen from the file name) identical to the shipped config.
+    # The synthetic fixture TIFFs carry no physical scale; the shipped (real-data) configs refuse that.
+    data["allow_uncalibrated"] = True
+    # The comparator is chosen by the config's explicit `comparator` key, kept from the shipped file.
     out = tmp_path / config_name
     out.write_text(yaml.safe_dump(data))
     return out

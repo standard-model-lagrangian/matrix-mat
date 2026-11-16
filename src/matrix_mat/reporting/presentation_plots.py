@@ -18,17 +18,18 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 if "MPLCONFIGDIR" not in os.environ:
     os.environ["MPLCONFIGDIR"] = tempfile.gettempdir()
 
 import matplotlib
 matplotlib.use("Agg")
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from matrix_mat.reporting._figures import closes_new_figures
 
 logger = logging.getLogger("matrix_mat.reporting.presentation_plots")
 
@@ -53,8 +54,9 @@ def get_effective_fov_counts(df_all: pd.DataFrame) -> pd.DataFrame:
         if len(fovs) <= 1:
             eff_counts.append({"condition": c, "replicate": r, "timepoint": tp, "n_fovs": len(fovs)})
             continue
-        pair_matches = {}
-        dups = grp[grp["qc_reasons"].str.contains("duplicate_focal_plane", na=False)]
+        pair_matches: Dict[Tuple[int, ...], int] = {}
+        reasons = grp["qc_reasons"].fillna("").astype(str) if "qc_reasons" in grp.columns else pd.Series("", index=grp.index)
+        dups = grp[reasons.str.contains("duplicate_focal_plane", na=False)]
         for _, row in dups.iterrows():
             m = re.search(r"in fov (\d+)", str(row["qc_reasons"]))
             if m:
@@ -179,6 +181,7 @@ def stagger_log_positions(y_vals: Sequence[float], min_log_gap: float = 0.12) ->
     return 10 ** log_y
 
 
+@closes_new_figures
 def generate_all_presentation_figures(
     output_dir: Union[str, Path],
     objects_df: Optional[pd.DataFrame] = None,
@@ -240,7 +243,7 @@ def generate_all_presentation_figures(
         box_data, positions=positions, widths=0.5, patch_artist=True,
         showfliers=False, medianprops=dict(color="#d35400", linewidth=2.5)
     )
-    for patch, c in zip(bp1["boxes"], cond_order):
+    for patch, c in zip(bp1["boxes"], cond_order, strict=False):
         patch.set_facecolor(COND_COLORS.get(c, "#95a5a6"))
         patch.set_alpha(0.65)
         patch.set_edgecolor("#2c3e50")
@@ -297,12 +300,18 @@ def generate_all_presentation_figures(
         sub_p = pass_pairs[pass_pairs["condition"] == c] if not pass_pairs.empty else pd.DataFrame()
         if not sub_p.empty:
             if "fold_change_volume" in sub_p.columns:
-                fcs = sub_p["fold_change_volume"].replace([np.inf, -np.inf], np.nan).dropna()
+                fcs = sub_p["fold_change_volume"]
             elif "fold_change_v7_v0" in sub_p.columns:
-                fcs = sub_p["fold_change_v7_v0"].replace([np.inf, -np.inf], np.nan).dropna()
+                fcs = sub_p["fold_change_v7_v0"]
             else:
-                fcs = (sub_p["t7_volume_sphere_um3"] / np.maximum(1e-6, sub_p["t0_volume_sphere_um3"])).replace([np.inf, -np.inf], np.nan).dropna()
-            ax3.scatter(sub_p["t0_volume_sphere_um3"], fcs, label=f"{c} (n={len(sub_p)})", color=COND_COLORS.get(c, "#95a5a6"), alpha=0.75, s=45)
+                fcs = sub_p["t7_volume_sphere_um3"] / np.maximum(1e-6, sub_p["t0_volume_sphere_um3"])
+            # Drop non-finite x and y together so the scatter arrays stay aligned.
+            xy = pd.DataFrame({
+                "x": pd.to_numeric(sub_p["t0_volume_sphere_um3"], errors="coerce"),
+                "y": pd.to_numeric(fcs, errors="coerce"),
+            }).replace([np.inf, -np.inf], np.nan).dropna()
+            if not xy.empty:
+                ax3.scatter(xy["x"], xy["y"], label=f"{c} (n={len(xy)})", color=COND_COLORS.get(c, "#95a5a6"), alpha=0.75, s=45)
     ax3.axhline(1.0, color="#c0392b", linestyle="--", linewidth=1.5, alpha=0.8)
     ax3.set_xscale("log")
     ax3.set_yscale("log")
@@ -350,7 +359,7 @@ def generate_all_presentation_figures(
     fig3, ax = plt.subplots(figsize=(12, 6), dpi=300)
     all_vols = [pass_objs[pass_objs["condition"] == c]["volume_sphere_um3"].values for c in cond_order]
     bp3 = ax.boxplot(all_vols, positions=positions, widths=0.5, patch_artist=True, showfliers=False, medianprops=dict(color="#d35400", linewidth=2.5))
-    for patch, c in zip(bp3["boxes"], cond_order):
+    for patch, c in zip(bp3["boxes"], cond_order, strict=False):
         patch.set_facecolor(COND_COLORS.get(c, "#95a5a6"))
         patch.set_alpha(0.65)
         patch.set_edgecolor("#2c3e50")
@@ -380,14 +389,14 @@ def generate_all_presentation_figures(
         rev_pct.append((len(grp[grp["qc_flag"] == "REVIEW"]) / tot) * 100.0 if tot else 0)
         fail_pct.append((len(grp[grp["qc_flag"] == "FAIL"]) / tot) * 100.0 if tot else 0)
 
-    pass_pct = np.array(pass_pct)
-    rev_pct = np.array(rev_pct)
-    fail_pct = np.array(fail_pct)
+    pass_arr = np.array(pass_pct)
+    rev_arr = np.array(rev_pct)
+    fail_arr = np.array(fail_pct)
     y_pos = np.arange(len(cond_order))
 
-    ax4_1.barh(y_pos, pass_pct, color="#2ecc71", edgecolor="#27ae60", height=0.55, label="PASS")
-    ax4_1.barh(y_pos, rev_pct, left=pass_pct, color="#f39c12", edgecolor="#d68910", height=0.55, label="REVIEW")
-    ax4_1.barh(y_pos, fail_pct, left=pass_pct + rev_pct, color="#e74c3c", edgecolor="#c0392b", height=0.55, label="FAIL")
+    ax4_1.barh(y_pos, pass_arr, color="#2ecc71", edgecolor="#27ae60", height=0.55, label="PASS")
+    ax4_1.barh(y_pos, rev_arr, left=pass_arr, color="#f39c12", edgecolor="#d68910", height=0.55, label="REVIEW")
+    ax4_1.barh(y_pos, fail_arr, left=pass_arr + rev_arr, color="#e74c3c", edgecolor="#c0392b", height=0.55, label="FAIL")
     ax4_1.set_yticks(y_pos)
     ax4_1.set_yticklabels(cond_order, fontweight="bold", fontsize=11)
     ax4_1.set_xlabel("Percentage of Detected Candidate Instances (%)", fontsize=11, fontweight="bold")
@@ -510,7 +519,7 @@ def generate_all_presentation_figures(
         mean_ratio = mean_v7 / max(1e-6, mean_v0)
         ax.plot([0, 1], [mean_v0, mean_v7], color="#1c2833", lw=3.5, linestyle="--", label=f"Mean: {mean_v0:.1f} -> {mean_v7:.1f} M ({mean_ratio:.2f}x)", zorder=6)
         ax.set_yscale("log")
-        all_raw_vals = [v for v in (v0_raw + v7_raw) if v > 0]
+        all_raw_vals = [v for v in np.concatenate([v0_raw, v7_raw]) if np.isfinite(v) and v > 0]
         if all_raw_vals:
             min_y = max(1e-4, min(all_raw_vals) * 0.5)
             max_y = max(all_raw_vals) * 2.5
@@ -528,7 +537,7 @@ def generate_all_presentation_figures(
         axes_flat[r * n_cols].set_ylabel("Raw Spheroid Volume per Well\n($10^6\\,\\mu\\mathrm{m}^3 = 1\\,\\mathrm{nL}$) [Log Scale]", fontsize=11.5, fontweight="bold")
 
     fig6.suptitle("Raw Total Spheroid Volume per Replicate Well (Day 0 vs Day 7, Deduplicated)\nValues in $10^6\\,\\mu\\mathrm{m}^3$ (Nanoliters) with Individual Well Raw Ratios ($V_{t7} / V_{t0}$)", fontsize=14, fontweight="bold", y=0.98)
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.tight_layout(rect=(0, 0, 1, 0.95))
     p6_png = fig_dir / "presentation_fig6_raw_well_volumes.png"
     p6_pdf = fig_dir / "presentation_fig6_raw_well_volumes.pdf"
     fig6.savefig(p6_png, dpi=300)

@@ -134,7 +134,8 @@ class TestPreflightAndProvenance(unittest.TestCase):
         tifffile.imwrite(if_dir / "Field1_ch00.tif", np.zeros((50, 50), dtype=np.uint8))
         tifffile.imwrite(if_dir / "Field1_ch02.tif", np.zeros((50, 50), dtype=np.uint8))
 
-        report = audit_if_dataset(data_dir=if_dir, allow_unpaired=True)
+        # Weights are checked separately (missing weights are fatal); this test covers pairing only.
+        report = audit_if_dataset(data_dir=if_dir, allow_unpaired=True, check_weights=False)
         self.assertTrue(report.passed)
         self.assertEqual(report.stats["paired_fields"], 1)
 

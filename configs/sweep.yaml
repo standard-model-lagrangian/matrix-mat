@@ -5,6 +5,10 @@ allow_unpaired: true
 overwrite: false
 random_seed: 42
 default_pixel_size_um: 0.5050492474122553
+# Refuse fields without embedded scale metadata (all shipped data are calibrated).
+allow_uncalibrated: false
+# Cross-run comparison run after the sweep: prepost | generic
+comparator: "generic"
 
 # Cellpose-SAM model settings
 model:
@@ -46,13 +50,16 @@ combos:
 
   - slug: "004_D_3d"
     name: "D_3d"
-    description: "Volumetric handling (detects 2D vs 3D; skips 3D with logged reason if single-plane, executes 2D with stitch_threshold=0.7)"
+    # 3D/stitching is not supported (inputs are single-plane 2D; do_3D: true fails validation). Kept under
+    # its historical slug as a 2D control: its parameters equal A_baseline, so its outputs should too
+    # (the comparators warn when two runs are identical).
+    description: "Historical 3D slot, now a 2D control identical to A_baseline (3D unsupported on single-plane data)"
     flow_threshold: 0.4
     cellprob_threshold: 0.0
     diameter: null
     min_size: 15
-    stitch_threshold: 0.7
-    do_3D: true
+    stitch_threshold: 0.0
+    do_3D: false
 
 # QC Gating Thresholds
 qc:
@@ -67,10 +74,8 @@ qc:
   # falls below it. Confirm by visual review before relying on it.
   blur_mode: "absolute"
   blur_abs_threshold: 150.0
-  duplicate_iou_threshold: 0.50
   outlier_iqr_factor: 1.5
 
 # Features and summary settings
 features:
   spheroid_extent_method: "actin_threshold"  # 'actin_threshold' or 'nuclei_convex_hull'
-  actin_background_percentile: 50.0

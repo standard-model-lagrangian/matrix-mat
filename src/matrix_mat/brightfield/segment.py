@@ -21,7 +21,7 @@ from scipy.ndimage import gaussian_filter
 from skimage import measure, segmentation
 from skimage.feature import peak_local_max
 
-from matrix_mat.core.cache import MaskCache
+from matrix_mat.core.cache import NON_ALGORITHMIC_FIELDS, MaskCache
 from matrix_mat.core.repro import verify_model_weights
 from matrix_mat.brightfield.config import SegmentationConfig
 from matrix_mat.brightfield.decisions import DecisionsLogger
@@ -30,14 +30,37 @@ from matrix_mat.brightfield.preprocess import Preprocessor, upscale_labels
 logger = logging.getLogger("matrix_mat.brightfield.segment")
 
 
-def get_optimal_device() -> Tuple[bool, str]:
+def get_optimal_device(preferred: str = "auto") -> Tuple[bool, str]:
     """
-    Detect optimal PyTorch computing device:
-    - Apple Silicon MPS (macOS M-series) with PYTORCH_ENABLE_MPS_FALLBACK=1
+    Resolve the PyTorch computing device.
+
+    ``preferred='auto'`` (default) detects the best device:
     - NVIDIA CUDA
+    - Apple Silicon MPS (macOS M-series) with PYTORCH_ENABLE_MPS_FALLBACK=1
     - CPU fallback
+    ``'cpu'`` forces the CPU. ``'cuda'``, ``'cuda:N'`` or ``'mps'`` force that accelerator and
+    raise RuntimeError if it is not available (no silent fallback).
     Returns (use_gpu_bool, device_name_str).
     """
+    pref = str(preferred or "auto").strip().lower()
+    if pref == "cpu":
+        return False, "cpu"
+    if pref != "auto":
+        try:
+            import torch
+        except Exception as e:  # pragma: no cover - torch missing
+            raise RuntimeError(f"segmentation.device={pref!r} requested but PyTorch is not importable: {e}") from e
+        if pref.startswith("cuda"):
+            if not torch.cuda.is_available():
+                raise RuntimeError(f"segmentation.device={pref!r} requested but CUDA is not available")
+            return True, pref
+        if pref == "mps":
+            if not (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()):
+                raise RuntimeError("segmentation.device='mps' requested but Apple MPS is not available")
+            os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+            return True, "mps"
+        raise RuntimeError(f"Unsupported segmentation.device={pref!r}")
+
     try:
         import torch
 
@@ -51,6 +74,17 @@ def get_optimal_device() -> Tuple[bool, str]:
         logger.debug(f"PyTorch device detection encounter: {e}")
 
     return False, "cpu"
+
+
+def _cellpose_device_kwargs(device_str: str, requested: str) -> Dict[str, Any]:
+    """Extra CellposeModel kwargs pinning an explicitly configured device."""
+    if str(requested or "auto").lower() == "auto":
+        return {}
+    try:
+        import torch
+        return {"device": torch.device(device_str)}
+    except Exception:  # pragma: no cover
+        return {}
 
 
 class BaseSegmenter(ABC):
@@ -118,7 +152,7 @@ class ClassicalMultiScaleSegmenter(BaseSegmenter):
         opened = cv2.morphologyEx((filled * 255).astype(np.uint8), cv2.MORPH_OPEN, kernel_open)
 
         # 6. Connected components size and border margin filtering
-        min_d_um = 40.0
+        min_d_um = float(getattr(self.config, "classical_min_d_um", 40.0))
         min_area_px = np.pi * ((min_d_um / (2.0 * max(1e-4, pixel_size_um))) ** 2)
         max_area_px = float(self.config.single_mask_max_area_pct * (h * w))
         margin = max(1, int(self.config.border_margin_px))
@@ -165,7 +199,8 @@ class ClassicalMultiScaleSegmenter(BaseSegmenter):
         # 8. Annular background ring contrast verification (>= 10% darker than local ring)
         n_raw = int(np.max(raw_labels))
         clean_labels = np.zeros((h, w), dtype=np.int32)
-        ring_r = max(5, int(getattr(self.config, "background_ring_dilation_px", getattr(self.config, "ring_width_px", 15))))
+        ring_r = max(5, int(getattr(self.config, "classical_ring_width_px", 15)))
+        min_contrast = float(getattr(self.config, "classical_min_contrast", 0.10))
         kernel_ring = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ring_r * 2 + 1, ring_r * 2 + 1))
         all_mask = (raw_labels > 0).astype(np.uint8)
 
@@ -191,8 +226,8 @@ class ClassicalMultiScaleSegmenter(BaseSegmenter):
 
             contrast = (ring_mean - int_mean) / max(ring_mean, 1e-4)
 
-            # Keep only if at least 10% darker than background
-            if contrast >= 0.10:
+            # Keep only if at least classical_min_contrast (default 10%) darker than background
+            if contrast >= min_contrast:
                 kept_count += 1
                 clean_labels[obj_mask > 0] = kept_count
 
@@ -214,8 +249,13 @@ class CellposeSAMSegmenter(BaseSegmenter):
 
     def __init__(self, config: Optional[SegmentationConfig] = None):
         self.config = config if config is not None else SegmentationConfig()
-        self.use_gpu, self.device_str = get_optimal_device()
+        # Resolved lazily in _init_model so an unavailable forced device only matters when used.
+        self.requested_device = str(getattr(self.config, "device", "auto") or "auto")
+        self.use_gpu, self.device_str = False, self.requested_device
         self._model = None
+
+    def _resolve_device(self) -> None:
+        self.use_gpu, self.device_str = get_optimal_device(self.requested_device)
 
     def _init_model(self) -> Any:
         if self._model is None:
@@ -224,11 +264,13 @@ class CellposeSAMSegmenter(BaseSegmenter):
             local_model = Path(model_path_str).resolve()
             # Verify pinned weights before touching cellpose so a missing/mismatched file aborts the run.
             self.model_sha256 = verify_model_weights(local_model, model_name="cpsam_v2")
+            self._resolve_device()
             from cellpose import models
             models.MODEL_DIR = local_model.parent
             self._model = models.CellposeModel(
                 pretrained_model=str(local_model),
                 gpu=self.use_gpu,
+                **_cellpose_device_kwargs(self.device_str, self.requested_device),
             )
         return self._model
 
@@ -283,15 +325,22 @@ class CellposeFoundationSegmenter(BaseSegmenter):
 
     def __init__(self, config: Optional[SegmentationConfig] = None):
         self.config = config if config is not None else SegmentationConfig()
-        self.use_gpu, self.device_str = get_optimal_device()
+        # Resolved lazily in _init_model so an unavailable forced device only matters when used.
+        self.requested_device = str(getattr(self.config, "device", "auto") or "auto")
+        self.use_gpu, self.device_str = False, self.requested_device
         self._model = None
+
+    def _resolve_device(self) -> None:
+        self.use_gpu, self.device_str = get_optimal_device(self.requested_device)
 
     def _init_model(self) -> Any:
         if self._model is None:
+            self._resolve_device()
             from cellpose import models
             self._model = models.CellposeModel(
                 pretrained_model="cpdino",
                 gpu=self.use_gpu,
+                **_cellpose_device_kwargs(self.device_str, self.requested_device),
             )
             loaded_path = str(getattr(self._model, "pretrained_model", ""))
             if "cpdino" not in loaded_path:
@@ -406,6 +455,29 @@ class SegmentationHierarchy:
         self.cyto3_segmenter = CellposeCyto3Segmenter(self.config)
         self.classical_segmenter = ClassicalMultiScaleSegmenter(self.config)
 
+    def _segmenter_for(self, backend: str) -> BaseSegmenter:
+        """Return the (possibly test-substituted) segmenter instance for a backend name."""
+        if backend == "cpsam":
+            return self.cpsam_segmenter
+        if backend == "cpdino":
+            return self.cyto3_segmenter
+        if backend == "classical":
+            return self.classical_segmenter
+        raise ValueError(f"Unknown segmentation backend {backend!r}; expected one of {SUPPORTED_BACKENDS}")
+
+    def cache_key_payload(self, pixel_size_um: float) -> Dict[str, Any]:
+        """Algorithmic parameters that determine the mask: segmentation + preprocessing + scale."""
+        seg = {k: v for k, v in self.config.model_dump().items() if k not in NON_ALGORITHMIC_FIELDS}
+        prep_cfg = getattr(self.preprocessor, "config", None)
+        prep = prep_cfg.model_dump() if hasattr(prep_cfg, "model_dump") else {}
+        # Output-only preprocessing switches do not change the mask.
+        prep.pop("save_corrected_images", None)
+        return {
+            "segmentation": seg,
+            "preprocess": prep,
+            "pixel_size_um": round(float(pixel_size_um), 9),
+        }
+
     def _check_plausibility(self, mask: np.ndarray) -> Tuple[bool, str]:
         """
         Validate whether segmentation output is plausible:
@@ -455,8 +527,12 @@ class SegmentationHierarchy:
         else:
             model_ident = active_backend
 
-        # 1. Content-addressed disk cache check
-        cache_key = self.mask_cache.get_key(image, self.config, model_hash=str(model_ident), image_id=image_id)
+        # 1. Content-addressed disk cache check. The key covers everything that changes the mask:
+        # segmentation parameters, preprocessing parameters and the pixel size (which sets the
+        # downsampling factor and the classical size gate).
+        cache_key = self.mask_cache.get_key(
+            image, self.cache_key_payload(pixel_size_um), model_hash=str(model_ident), image_id=image_id
+        )
         if not should_force and self.mask_cache.has(cache_key):
             cached_mask = self.mask_cache.load(cache_key)
             if cached_mask is not None and cached_mask.shape[:2] == (raw_h, raw_w):
@@ -475,6 +551,19 @@ class SegmentationHierarchy:
                 for k in ("plausibility_status", "qc_flag", "qc_reasons"):
                     if cached_meta.get(k) is not None:
                         hit_meta[k] = cached_meta[k]
+                if hit_meta.get("qc_flag") == "SEG_FAIL":
+                    hit_outcome = f"SEG_FAIL: {hit_meta.get('qc_reasons', 'implausible mask')} ({n_objs} objects)"
+                else:
+                    hit_outcome = f"SUCCESS: {n_objs} objects identified"
+                self.decisions_logger.log(
+                    image_id=image_id,
+                    stage="Segmentation Hierarchy Result",
+                    trigger_event="Cache hit",
+                    action_taken=f"Loaded cached `{hit_meta['backend']}` mask",
+                    outcome=hit_outcome,
+                    backend_attempted=hit_meta["backend"],
+                    details={"pixel_size_um": pixel_size_um, "objects_found": n_objs, "cached": True},
+                )
                 return cached_mask, hit_meta
 
         # 2. Preprocess & downsample
@@ -488,12 +577,7 @@ class SegmentationHierarchy:
         selected_meta: Dict[str, Any] = {}
 
         # 3. Primary Backend Execution
-        if active_backend == "classical":
-            mask_t1, meta_t1 = self.classical_segmenter.segment(downsampled_img, effective_pixel_size)
-        elif active_backend == "cpdino":
-            mask_t1, meta_t1 = self.cyto3_segmenter.segment(downsampled_img, effective_pixel_size)
-        else:
-            mask_t1, meta_t1 = self.cpsam_segmenter.segment(downsampled_img, effective_pixel_size)
+        mask_t1, meta_t1 = self._segmenter_for(active_backend).segment(downsampled_img, effective_pixel_size)
 
         if meta_t1.get("status") == "failed":
             # Per-image inference error: flag the image and never cache the empty placeholder mask.
@@ -513,6 +597,7 @@ class SegmentationHierarchy:
                                    "objects_found": 0, "image_id": image_id, "cached": False}
 
         is_valid, reason = self._check_plausibility(mask_t1)
+        cacheable = True
         if is_valid:
             selected_mask = mask_t1
             selected_meta = meta_t1
@@ -521,24 +606,47 @@ class SegmentationHierarchy:
                 logger.warning(
                     f"Image {image_id}: {active_backend} plausibility check failed ({reason}); attempting per-image fallback"
                 )
-                # Attempt Tier 2 fallback if not already run
-                tier2_backend = self.config.fallback_backend
-                if active_backend != tier2_backend:
+                attempts = [f"{active_backend}: {reason}"]
+                for tier_name, tier_backend in (
+                    ("fallback", self.config.fallback_backend),
+                    ("last_resort", self.config.last_resort_backend),
+                ):
+                    if tier_backend == active_backend or any(a.startswith(f"{tier_backend}:") for a in attempts):
+                        continue
                     try:
-                        mask_t2, meta_t2 = self.cyto3_segmenter.segment(downsampled_img, effective_pixel_size)
-                        is_valid2, reason2 = self._check_plausibility(mask_t2)
-                        if is_valid2:
-                            selected_mask = mask_t2
-                            selected_meta = meta_t2
+                        mask_t, meta_t = self._segmenter_for(tier_backend).segment(downsampled_img, effective_pixel_size)
                     except Exception as e:
-                        logger.warning(f"Fallback {tier2_backend} failed for {image_id}: {e}")
-
-                # Attempt Tier 3 (last resort) if still None
-                last_resort = self.config.last_resort_backend
-                if selected_mask is None and active_backend != last_resort:
-                    mask_t3, meta_t3 = self.classical_segmenter.segment(downsampled_img, effective_pixel_size)
-                    selected_mask = mask_t3
-                    selected_meta = meta_t3
+                        logger.warning(f"{tier_name} backend {tier_backend} failed for {image_id}: {e}")
+                        attempts.append(f"{tier_backend}: error {e}")
+                        continue
+                    meta_t = {**meta_t, "backend": meta_t.get("backend", tier_backend)}
+                    if meta_t.get("status") == "failed":
+                        attempts.append(f"{tier_backend}: inference error {meta_t.get('error', 'unknown')}")
+                        selected_mask, selected_meta = mask_t, meta_t
+                        continue
+                    ok_t, reason_t = self._check_plausibility(mask_t)
+                    self.decisions_logger.log_fallback(
+                        image_id=image_id, from_backend=active_backend, to_backend=tier_backend,
+                        reason=reason, outcome="plausible" if ok_t else f"implausible: {reason_t}",
+                    )
+                    selected_mask, selected_meta = mask_t, meta_t
+                    if ok_t:
+                        break
+                    attempts.append(f"{tier_backend}: {reason_t}")
+                else:
+                    # No tier produced a plausible mask: keep the last attempt but flag the image.
+                    if selected_mask is None:
+                        selected_mask, selected_meta = mask_t1, meta_t1
+                    selected_meta = {
+                        **selected_meta,
+                        "plausibility_status": "FAIL",
+                        "qc_flag": "SEG_FAIL",
+                        "qc_reasons": "SEG_FAIL: no plausible mask from any tier (" + "; ".join(attempts) + ")",
+                    }
+                # Only primary-backend results are cached under the primary backend's key.
+                cacheable = selected_meta.get("backend", active_backend) == active_backend
+                if selected_meta.get("status") == "failed":
+                    cacheable = False
             else:
                 # Strict policy: one backend per run. Flag image, do NOT switch backend!
                 selected_mask = mask_t1
@@ -567,18 +675,25 @@ class SegmentationHierarchy:
                 "qc_flag": selected_meta.get("qc_flag"),
                 "qc_reasons": selected_meta.get("qc_reasons"),
             }
-            self.mask_cache.save(cache_key, full_res_mask, metadata=cache_meta)
+            if cacheable:
+                self.mask_cache.save(cache_key, full_res_mask, metadata=cache_meta)
+            else:
+                logger.debug(f"Not caching non-primary/failed result for {image_id}")
         except Exception as e:
             logger.warning(f"Could not cache mask for {image_id}: {e}")
 
         # Record final decision outcome
         final_backend = selected_meta.get("backend", active_backend)
+        if selected_meta.get("qc_flag") == "SEG_FAIL":
+            outcome = f"SEG_FAIL: {selected_meta.get('qc_reasons', 'implausible mask')} ({n_final} objects)"
+        else:
+            outcome = f"SUCCESS: {n_final} objects identified"
         self.decisions_logger.log(
             image_id=image_id,
             stage="Segmentation Hierarchy Result",
             trigger_event="Segmentation completed",
             action_taken=f"Segmented with `{final_backend}` backend",
-            outcome=f"SUCCESS: {n_final} objects identified",
+            outcome=outcome,
             backend_attempted=final_backend,
             details={
                 "pixel_size_um": pixel_size_um,

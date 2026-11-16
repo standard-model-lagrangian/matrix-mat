@@ -59,6 +59,26 @@ spheroid-if = "matrix_mat.if_density.sweep:main"
 where = [".", "src"]
 include = ["matrix_mat*", "spheroid_pipeline_v2*", "spheroid_if_sweep*"]
 
+[tool.setuptools.package-data]
+# Pinned model-weight manifest, loaded via importlib.resources (matrix_mat.core.repro).
+matrix_mat = ["models.lock.json"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Legacy shims re-export the matrix_mat API with star imports after a deprecation warning.
+"spheroid_pipeline_v2/**" = ["F401", "F403", "E402"]
+"spheroid_if_sweep/**" = ["F401", "F403", "E402"]
+# Tests import modules for their side effects / to prove they import (see tests/test_meta.py).
+"tests/**" = ["F401", "E402"]
+# Names imported here are re-exported through the spheroid_pipeline_v2 star-import shims.
+"src/matrix_mat/brightfield/{measure,preprocess,qc_filter,segment,stats}.py" = ["F401"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-p no:fast_array_utils --strict-markers"

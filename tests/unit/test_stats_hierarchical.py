@@ -24,7 +24,7 @@ def test_bootstrap_ci_widens_with_cluster_correlation():
     records = []
     for g in range(n_gels):
         gel_effect = rng.normal(0, sigma_gel)
-        for s in range(spheroids_per_gel):
+        for _s in range(spheroids_per_gel):
             val = 1.0 + gel_effect + rng.normal(0, sigma_within)
             records.append({"gel": f"gel_{g}", "val": val})
 

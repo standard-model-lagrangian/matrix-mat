@@ -81,11 +81,20 @@ def test_vanished_spheroid_log2fc_is_nan_and_flagged():
         qc_reasons="t7_vanished",
     )
 
+    # A FAIL-flagged t7 object never takes part in the assignment: it stays unpaired.
     pairs, un0, un7 = pairer.pair_fov_objects([obj0], [obj7], pair_key="Mat_gel1_0001")
+    assert pairs == []
+    assert un7 == [obj7]
+
+    # A non-FAIL zero-volume partner still pairs, with log2 FC NaN and a VANISHED reason.
+    from dataclasses import replace
+    obj7_review = replace(obj7, qc_flag="REVIEW", qc_reasons="low_circularity")
+    pairs, un0, un7 = pairer.pair_fov_objects([obj0], [obj7_review], pair_key="Mat_gel1_0001")
     assert len(pairs) == 1
     p = pairs[0]
     assert np.isnan(p.log2_fold_change), f"Expected log2_fc to be NaN for vanished spheroid, but got {p.log2_fold_change}"
-    assert "VANISHED" in p.qc_reasons or "FAIL" in p.qc_reasons or "t7_FAIL" in p.qc_reasons
+    assert "VANISHED" in p.qc_reasons
+    assert p.combined_qc_flag == "FAIL"
 
 
 def test_classical_tier_uses_effective_pixel_size():

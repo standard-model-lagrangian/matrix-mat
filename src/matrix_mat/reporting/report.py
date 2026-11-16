@@ -7,14 +7,57 @@ interactive, responsive HTML report (report.html).
 from __future__ import annotations
 
 import datetime
+import html as _html
 import logging
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from matrix_mat.brightfield.config import PipelineConfig
+from matrix_mat.reporting._figures import ordered_values
 
 logger = logging.getLogger("matrix_mat.reporting.report")
+
+
+def _fmt_float(val: float) -> str:
+    if val != 0.0 and abs(val) < 0.001:
+        return f"{val:.2e}"
+    if abs(val) < 10.0:
+        return f"{val:.3f}"
+    if abs(val) < 1000.0:
+        return f"{val:.1f}"
+    return f"{val:,.0f}"
+
+
+def format_p_value(p: Any) -> str:
+    """Render a p-value: '<0.001' below 0.001, three decimals otherwise, '—' when missing."""
+    try:
+        v = float(p)
+    except (TypeError, ValueError):
+        return "—"
+    if math.isnan(v):
+        return "—"
+    return "<0.001" if v < 0.001 else f"{v:.3f}"
+
+
+def _is_p_column(name: Any) -> bool:
+    n = str(name).lower()
+    return n.startswith("p_") or n.startswith("p ") or n in ("p", "p_value", "pvalue") or "min_achievable_p" in n or n == "min_p"
+
+
+def _format_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """String-format a frame for display: p-value columns via format_p_value, other floats via _fmt_float."""
+    out = df.copy().astype(object)
+    for col in df.columns:
+        is_p = _is_p_column(col)
+        out[col] = [
+            ("—" if (v is None or (isinstance(v, float) and math.isnan(v))) else
+             format_p_value(v) if is_p and isinstance(v, (int, float, np.floating)) and not isinstance(v, bool) else
+             _fmt_float(float(v)) if isinstance(v, (float, np.floating)) else str(v))
+            for v in df[col].tolist()
+        ]
+    return out
 
 
 def df_to_markdown_table(df: pd.DataFrame) -> str:
@@ -29,17 +72,10 @@ def df_to_markdown_table(df: pd.DataFrame) -> str:
     for _, row in df.iterrows():
         r_str: List[str] = []
         for i, val in enumerate(row):
-            if pd.isna(val):
+            if not isinstance(val, str) and pd.isna(val):
                 s = "—"
-            elif isinstance(val, float):
-                if abs(val) < 0.0001 and val != 0.0:
-                    s = f"{val:.2e}"
-                elif abs(val) < 10.0:
-                    s = f"{val:.3f}"
-                elif abs(val) < 1000.0:
-                    s = f"{val:.1f}"
-                else:
-                    s = f"{val:,.0f}"
+            elif isinstance(val, (float, np.floating)):
+                s = format_p_value(val) if _is_p_column(headers[i]) else _fmt_float(float(val))
             else:
                 s = str(val)
             col_widths[i] = max(col_widths[i], len(s))
@@ -85,7 +121,7 @@ class ReportGenerator:
 
         # Calculate Executive KPIs
         total_images = len(manifest_df) if manifest_df is not None and not manifest_df.empty else 0
-        matched_pairs_fov = int(manifest_df[manifest_df["is_matched_pair"] == True]["pair_key"].nunique()) if manifest_df is not None and not manifest_df.empty and "is_matched_pair" in manifest_df.columns else 0
+        matched_pairs_fov = int(manifest_df[manifest_df["is_matched_pair"] == True]["pair_key"].nunique()) if manifest_df is not None and not manifest_df.empty and "is_matched_pair" in manifest_df.columns else 0  # noqa: E712
         total_objects = len(objects_df) if objects_df is not None and not objects_df.empty else 0
         total_pairs = len(pairs_df) if pairs_df is not None and not pairs_df.empty else 0
 
@@ -95,13 +131,9 @@ class ReportGenerator:
         fail_count = qc_counts.get("FAIL", 0)
         pass_rate = (pass_count / total_objects * 100.0) if total_objects > 0 else 0.0
 
-        fov_with_pass = 0
-        if objects_df is not None and not objects_df.empty and "qc_flag" in objects_df.columns and "pair_key" in objects_df.columns:
-            pass_objs = objects_df[objects_df["qc_flag"] == "PASS"]
-            fov_with_pass = pass_objs["pair_key"].nunique()
-        call_rate = (fov_with_pass / max(1, matched_pairs_fov)) * 100.0 if matched_pairs_fov > 0 else 100.0
-
-        n_denom_pass = int(pairs_df["denominator_gate_pass"].sum()) if pairs_df is not None and not pairs_df.empty and "denominator_gate_pass" in pairs_df.columns else total_pairs
+        call_rate = self._call_rate(manifest_df, objects_df)
+        n_denom_pass = self._n_pairs_in_stats(pairs_df)
+        self._scale_lines = self._effective_scales(objects_df, pairs_df)
 
         # Unpaired Population Summary Table
         pop_summary_df = self._compute_population_summary(objects_df, condition_summary_df)
@@ -167,6 +199,83 @@ class ReportGenerator:
         logger.info(f"Generated executive reports: {md_path.name} and {html_path.name}")
         return md_path, html_path
 
+    # ------------------------------------------------------------------ helpers
+    @property
+    def _gate_um(self) -> float:
+        for section in ("pairing", "stats"):
+            v = getattr(getattr(self.config, section, None), "min_t0_d_um_denominator", None)
+            if v is not None:
+                return float(v)
+        return float("nan")
+
+    @property
+    def _control(self) -> str:
+        return str(getattr(getattr(self.config, "stats", None), "control_condition", "Mat"))
+
+    @staticmethod
+    def _call_rate(manifest_df: Optional[pd.DataFrame], objects_df: Optional[pd.DataFrame]) -> Optional[float]:
+        """Percent of matched Day-0/Day-7 FOV pairs with >=1 PASS object at every timepoint.
+
+        Numerator and denominator use the same set of matched pair keys, so the rate is in
+        [0, 100]. Returns None (rendered 'n/a') when there are no matched FOV pairs.
+        """
+        if manifest_df is None or manifest_df.empty or not {"is_matched_pair", "pair_key"}.issubset(manifest_df.columns):
+            return None
+        matched = set(manifest_df.loc[manifest_df["is_matched_pair"] == True, "pair_key"].dropna())  # noqa: E712
+        if not matched:
+            return None
+        called = 0
+        if objects_df is not None and not objects_df.empty and {"qc_flag", "pair_key"}.issubset(objects_df.columns):
+            pass_objs = objects_df[(objects_df["qc_flag"] == "PASS") & objects_df["pair_key"].isin(matched)]
+            if "timepoint" in pass_objs.columns and "timepoint" in objects_df.columns:
+                n_tp = objects_df.loc[objects_df["pair_key"].isin(matched), "timepoint"].nunique()
+                per_key = pass_objs.groupby("pair_key")["timepoint"].nunique()
+                called = int((per_key >= max(1, n_tp)).sum())
+            else:
+                called = int(pass_objs["pair_key"].nunique())
+        return 100.0 * called / len(matched)
+
+    def _n_pairs_in_stats(self, pairs_df: Optional[pd.DataFrame]) -> int:
+        """Pairs that enter the condition statistics: gate passed, QC PASS (+REVIEW if configured), finite FC."""
+        if pairs_df is None or pairs_df.empty:
+            return 0
+        mask = pd.Series(True, index=pairs_df.index)
+        if "denominator_gate_pass" in pairs_df.columns:
+            mask &= pairs_df["denominator_gate_pass"].fillna(False).astype(bool)
+        if "combined_qc_flag" in pairs_df.columns:
+            allowed = ["PASS", "REVIEW"] if getattr(getattr(self.config, "stats", None), "include_review_in_stats", False) else ["PASS"]
+            mask &= pairs_df["combined_qc_flag"].isin(allowed)
+        for col in ("log2_fold_change", "fold_change_volume"):
+            if col in pairs_df.columns:
+                mask &= np.isfinite(pd.to_numeric(pairs_df[col], errors="coerce"))
+                break
+        return int(mask.sum())
+
+    def _effective_scales(self, objects_df: Optional[pd.DataFrame], pairs_df: Optional[pd.DataFrame]) -> List[str]:
+        """Pixel scale(s) actually used, from the per-object scale columns; else override / config default."""
+        for df in (objects_df, pairs_df):
+            if df is not None and not df.empty and {"pixel_size_um", "scale_source"}.issubset(df.columns):
+                cols = ["pixel_size_um", "scale_source"]
+                sub = df.drop_duplicates("image_id") if "image_id" in df.columns else df
+                counts = sub[cols].dropna().assign(pixel_size_um=lambda d: d["pixel_size_um"].astype(float).round(6))
+                counts = counts.groupby(cols).size().reset_index(name="n")
+                if not counts.empty:
+                    unit = "images" if "image_id" in df.columns else "rows"
+                    return [f"{r.pixel_size_um:.6f} um/px ({r.scale_source}, {int(r.n)} {unit})" for r in counts.itertuples()]
+        override = getattr(self.config, "cli_pixel_size_um", None)
+        if override is not None:
+            return [f"{float(override):.6f} um/px (cli_override)"]
+        return [f"{float(self.config.default_pixel_size_um):.6f} um/px (config default; per-image scale not recorded)"]
+
+    def _footnote(self) -> str:
+        perms = int(getattr(getattr(self.config, "stats", None), "permutation_iterations", 10000))
+        return (
+            f"Significance vs control `{self._control}`: gel-level (cluster) label permutation test on the paired "
+            f"fold change — exact enumeration of all gel relabellings when there are at most 2,000, otherwise "
+            f"Monte Carlo with M={perms:,} seeded permutations; p-values Holm-adjusted across conditions. "
+            "Stars: `****` p<0.0001, `***` p<0.001, `**` p<0.01, `*` p<0.05, `ns` p>=0.05."
+        )
+
     def _compute_population_summary(
         self,
         objects_df: pd.DataFrame,
@@ -180,8 +289,7 @@ class ReportGenerator:
         if pass_objs.empty:
             return pd.DataFrame()
 
-        cond_order = ["Mat", "S34D30", "S40D30", "S43D20", "S46D10", "S50"]
-        present_conds = [c for c in cond_order if c in pass_objs["condition"].unique()]
+        present_conds = ordered_values(pass_objs["condition"].unique())
 
         rows = []
         for cond in present_conds:
@@ -193,14 +301,17 @@ class ReportGenerator:
             d7 = c_df[c_df["timepoint"] == "t7"]["equivalent_diameter_um"].dropna().values if "equivalent_diameter_um" in c_df.columns and "timepoint" in c_df.columns else np.array([])
 
             p_val = np.nan
+            p_type = "—"
             sig = "ns"
             if condition_summary_df is not None and not condition_summary_df.empty and "condition" in condition_summary_df.columns:
                 cond_row = condition_summary_df[condition_summary_df["condition"] == cond]
                 if not cond_row.empty:
                     if "p_adj" in cond_row.columns and pd.notna(cond_row["p_adj"].values[0]):
                         p_val = float(cond_row["p_adj"].values[0])
+                        p_type = "Holm-adjusted"
                     elif "p_raw" in cond_row.columns and pd.notna(cond_row["p_raw"].values[0]):
                         p_val = float(cond_row["p_raw"].values[0])
+                        p_type = "unadjusted"
                     if "significance" in cond_row.columns and pd.notna(cond_row["significance"].values[0]):
                         sig = str(cond_row["significance"].values[0])
 
@@ -222,7 +333,8 @@ class ReportGenerator:
                 "median_v7_um3": v7_med,
                 "delta_median_v_um3": delta_v,
                 "pop_fold_change (Med_V7/Med_V0)": pop_fc,
-                "p_adj (vs Mat)": p_val,
+                f"p (vs {self._control})": p_val,
+                "p_type": p_type,
                 "significance": sig,
             })
 
@@ -238,7 +350,7 @@ class ReportGenerator:
         review_count: int,
         fail_count: int,
         pass_rate: float,
-        call_rate: float,
+        call_rate: Optional[float],
         n_denom_pass: int,
         condition_summary_df: pd.DataFrame,
         pop_summary_df: pd.DataFrame,
@@ -251,11 +363,16 @@ class ReportGenerator:
         decisions_text: str,
     ) -> str:
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        import matrix_mat
+
+        call_rate_str = "n/a" if call_rate is None else f"{call_rate:.1f}%"
+        scales = getattr(self, "_scale_lines", None) or self._effective_scales(None, None)
 
         lines = [
             "# Spheroid Volume Analysis Pipeline v2 — Executive Report & Comprehensive Audit",
             f"\n**Execution Timestamp**: `{now_str}`  ",
-            f"**Pipeline Version**: `2.0.0` | **Optical Calibration**: `{self.config.default_pixel_size_um:.6f} um/px`\n",
+            f"**Pipeline Version**: `{matrix_mat.__version__}` | **Optical Calibration (effective)**: "
+            + "; ".join(f"`{s}`" for s in scales) + "\n",
             "---",
             "\n## 1. Executive Summary & Quality Control KPIs\n",
             "| Metric | Value | Description |",
@@ -267,8 +384,8 @@ class ReportGenerator:
             f"| **QC REVIEW Objects** | `{review_count}` | Irregular/borderline instances flagged for audit |",
             f"| **QC FAIL Objects** | `{fail_count}` | Low-contrast gel artifacts & debris excluded |",
             f"| **Matched Trajectories** | `{total_pairs}` | Bipartite Hungarian matched pairs ($t_0 \\to t_7$) |",
-            f"| **Denominator Gate Pass** | `{n_denom_pass}` | Pairs with $d_0 \\ge 60\\,\\mu\\mathrm{{m}}$ included in stats |",
-            f"| **Segmentation Call Rate** | `{call_rate:.1f}%` | FOVs yielding $\\ge 1$ verified PASS spheroid |",
+            f"| **Denominator Gate Pass** | `{n_denom_pass}` | Pairs entering the condition statistics (QC-accepted, $d_0 \\ge {self._gate_um:g}\\,\\mu\\mathrm{{m}}$, finite fold change) |",
+            f"| **Segmentation Call Rate** | `{call_rate_str}` | Matched FOV pairs with $\\ge 1$ PASS spheroid at every timepoint |",
             "\n---",
             "\n## 2. Unpaired Population-Level Growth Summary (All PASS Spheroids)\n",
             "> **Note**: In un-registered 3D brightfield imaging where the plate is repositioned on a manual stage at Day 7, comparing the full population distribution of all spheroids at Day 0 vs Day 7 per condition is the most robust and biologically defensible readout.\n",
@@ -290,7 +407,7 @@ class ReportGenerator:
             lines.append("*No condition summary data generated.*")
 
         lines.extend([
-            "\n*Significance stars: `****` ($p < 0.0001$), `***` ($p < 0.001$), `**` ($p < 0.01$), `*` ($p < 0.05$), `ns` ($p \\ge 0.05$) vs Control `Mat` (Monte Carlo Permutation Test, $M=10,000$).*",
+            f"\n*{self._footnote()}*",
             "\n---",
             "\n## 4. Multilevel 10-Stage Exclusion Audit\n",
         ])
@@ -353,7 +470,7 @@ class ReportGenerator:
         review_count: int,
         fail_count: int,
         pass_rate: float,
-        call_rate: float,
+        call_rate: Optional[float],
         n_denom_pass: int,
         condition_summary_df: pd.DataFrame,
         pop_summary_df: pd.DataFrame,
@@ -365,29 +482,21 @@ class ReportGenerator:
         validation_df: Optional[pd.DataFrame],
         decisions_text: str,
     ) -> str:
+        """Self-contained HTML (inline CSS, no CDN, no LaTeX: units are written as plain HTML)."""
+        import matrix_mat
+
         now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        esc = _html.escape
+        call_rate_str = "n/a" if call_rate is None else f"{call_rate:.1f}%"
+        scales = getattr(self, "_scale_lines", None) or self._effective_scales(None, None)
+        scale_str = "; ".join(esc(s).replace("um/px", "&micro;m/px") for s in scales)
+        gate = f"d<sub>0</sub> &ge; {self._gate_um:g} &micro;m"
 
-        pop_table_html = pop_summary_df.to_html(
-            classes="table table-striped table-hover",
-            index=False,
-            na_rep="—",
-            float_format=lambda x: f"{x:.3f}" if abs(x) < 10 else (f"{x:,.1f}" if abs(x) < 1000 else f"{x:,.0f}"),
-        ) if pop_summary_df is not None and not pop_summary_df.empty else "<p>No data</p>"
+        def table(df: Optional[pd.DataFrame]) -> str:
+            if df is None or df.empty:
+                return "<p>No data</p>"
+            return _format_frame(df).to_html(classes="tbl", index=False, na_rep="—", escape=True)
 
-        cond_table_html = condition_summary_df.to_html(
-            classes="table table-striped table-hover",
-            index=False,
-            na_rep="—",
-            float_format=lambda x: f"{x:.3f}" if abs(x) < 10 else (f"{x:,.1f}" if abs(x) < 1000 else f"{x:,.0f}"),
-        ) if condition_summary_df is not None and not condition_summary_df.empty else "<p>No data</p>"
-
-        audit_table_html = exclusion_audit_df.to_html(
-            classes="table table-striped table-hover",
-            index=False,
-            na_rep="—",
-        ) if exclusion_audit_df is not None and not exclusion_audit_df.empty else "<p>No data</p>"
-
-        fig_cards = []
         fig_names = [
             ("Unpaired Population Distributions", "population_volume_distributions.png"),
             ("Paired Fold Change Violins", "fold_change_violin.png"),
@@ -397,83 +506,74 @@ class ReportGenerator:
             ("FAIL Class Forensic Audit", "fail_class_audit.png"),
             ("Session Focus & Illumination Audit", "session_focus_exposure_audit.png"),
         ]
-        for title, fname in fig_names:
-            fig_cards.append(f"""
-            <div class="col-md-6 mb-4">
-                <div class="card shadow-sm h-100">
-                    <div class="card-header bg-dark text-white font-weight-bold">{title}</div>
-                    <div class="card-body text-center">
-                        <img src="figures/{fname}" class="img-fluid rounded" alt="{title}">
-                    </div>
-                </div>
-            </div>
-            """)
+        fig_cards = "".join(
+            f'<div class="card fig"><div class="card-h">{esc(t)}</div>'
+            f'<img src="figures/{esc(f)}" alt="{esc(t)}"></div>'
+            for t, f in fig_names
+        )
+        stats = [
+            (total_images, "Raw Images", ""), (matched_pairs_fov, "Matched FOVs", ""),
+            (pass_count, "PASS Spheroids", "ok"), (review_count, "REVIEW Flagged", "warn"),
+            (fail_count, "FAIL Excluded", "bad"), (call_rate_str, "FOV Call Rate", "info"),
+            (n_denom_pass, "Pairs in Stats", ""),
+        ]
+        stat_cards = "".join(
+            f'<div class="stat"><div class="num {c}">{esc(str(v))}</div><div class="lbl">{esc(lbl)}</div></div>'
+            for v, lbl, c in stats
+        )
+        footnote = esc(self._footnote()).replace("`", "")
 
-        html = f"""<!DOCTYPE html>
+        return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Spheroid Volume Pipeline v2 — Spheroid Volume Analysis Dashboard</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8f9fa; }}
-        .header-banner {{ background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; padding: 2.5rem 1rem; margin-bottom: 2rem; border-radius: 0 0 12px 12px; }}
-        .stat-card {{ background: white; border-radius: 8px; padding: 1.25rem; box-shadow: 0 2px 6px rgba(0,0,0,0.06); text-align: center; }}
-        .stat-number {{ font-size: 2rem; font-weight: bold; color: #2c3e50; }}
-        .stat-label {{ font-size: 0.85rem; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }}
-        .card {{ border: none; border-radius: 8px; margin-bottom: 1.5rem; }}
-        .table th {{ background: #2c3e50; color: white; font-size: 0.9rem; }}
-        .table td {{ font-size: 0.88rem; }}
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spheroid Volume Analysis Report</title>
+<style>
+  body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8f9fa; color: #2c3e50; }}
+  header {{ background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: #fff; padding: 2rem 1rem; text-align: center; }}
+  header h1 {{ margin: 0 0 .5rem; font-size: 1.8rem; }}
+  header p {{ margin: .25rem 0; }}
+  main {{ max-width: 1400px; margin: 0 auto; padding: 1.5rem 1rem; }}
+  .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }}
+  .stat, .card {{ background: #fff; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,.06); }}
+  .stat {{ padding: 1rem; text-align: center; }}
+  .num {{ font-size: 1.8rem; font-weight: bold; }}
+  .num.ok {{ color: #27ae60; }} .num.warn {{ color: #e67e22; }} .num.bad {{ color: #c0392b; }} .num.info {{ color: #2a5298; }}
+  .lbl {{ font-size: .8rem; color: #7f8c8d; text-transform: uppercase; letter-spacing: 1px; }}
+  .card {{ margin-bottom: 1.5rem; overflow-x: auto; }}
+  .card-h {{ font-weight: bold; font-size: 1.1rem; padding: .75rem 1rem; border-bottom: 1px solid #eee; }}
+  .card-b {{ padding: 1rem; }}
+  .muted {{ color: #7f8c8d; font-size: .85rem; }}
+  table.tbl {{ border-collapse: collapse; width: 100%; font-size: .85rem; }}
+  table.tbl th {{ background: #2c3e50; color: #fff; padding: .4rem .5rem; text-align: left; }}
+  table.tbl td {{ padding: .35rem .5rem; border-bottom: 1px solid #eee; }}
+  table.tbl tr:nth-child(even) td {{ background: #f6f8fa; }}
+  .figs {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1rem; }}
+  .fig img {{ max-width: 100%; height: auto; display: block; margin: .5rem auto; }}
+</style>
 </head>
 <body>
-    <div class="header-banner text-center">
-        <h1>Spheroid Volume Pipeline v2 — Spheroid Volume Analysis Dashboard</h1>
-        <p class="lead">Supervisable Multi-Spheroid Image Processing & Growth Analysis (Day 0 vs Day 7)</p>
-        <p class="small mb-0">Generated: {now_str} | Optical Scale: {self.config.default_pixel_size_um:.6f} &mu;m/px</p>
-    </div>
-    <div class="container-fluid" style="max-width: 1400px;">
-        <!-- Quick Stats Row -->
-        <div class="row mb-4">
-            <div class="col-md-2"><div class="stat-card"><div class="stat-number">{total_images}</div><div class="stat-label">Raw Images</div></div></div>
-            <div class="col-md-2"><div class="stat-card"><div class="stat-number">{matched_pairs_fov}</div><div class="stat-label">Matched FOVs</div></div></div>
-            <div class="col-md-2"><div class="stat-card"><div class="stat-number text-success">{pass_count}</div><div class="stat-label">PASS Spheroids</div></div></div>
-            <div class="col-md-2"><div class="stat-card"><div class="stat-number text-warning">{review_count}</div><div class="stat-label">REVIEW Flagged</div></div></div>
-            <div class="col-md-2"><div class="stat-card"><div class="stat-number text-danger">{fail_count}</div><div class="stat-label">FAIL Excluded</div></div></div>
-            <div class="col-md-2"><div class="stat-card"><div class="stat-number text-primary">{call_rate:.1f}%</div><div class="stat-label">FOV Call Rate</div></div></div>
-        </div>
+<header>
+  <h1>Spheroid Volume Analysis Report</h1>
+  <p>Multi-spheroid image processing and growth analysis (Day 0 vs Day 7)</p>
+  <p class="small">Generated: {esc(now_str)} | matrix-mat {esc(str(matrix_mat.__version__))} | Optical scale (effective): {scale_str}</p>
+</header>
+<main>
+  <section class="stats">{stat_cards}</section>
 
-        <!-- Unpaired Population Summary -->
-        <div class="card shadow-sm">
-            <div class="card-header bg-white font-weight-bold h5 mb-0">Unpaired Population-Level Growth Summary (All PASS Spheroids)</div>
-            <div class="card-body table-responsive">
-                <p class="text-muted small mb-3">Evaluates the full cohort of verified spheroids at Day 0 vs Day 7 without requiring spatial coordinate persistence across manual re-positioning.</p>
-                {pop_table_html}
-            </div>
-        </div>
+  <div class="card"><div class="card-h">Unpaired Population-Level Growth Summary (All PASS Spheroids)</div>
+    <div class="card-b"><p class="muted">Evaluates the full cohort of verified spheroids at Day 0 vs Day 7 without requiring spatial coordinate persistence across manual re-positioning.</p>
+    {table(pop_summary_df)}</div></div>
 
-        <!-- Paired Trajectories Summary -->
-        <div class="card shadow-sm">
-            <div class="card-header bg-white font-weight-bold h5 mb-0">Paired Trajectory Statistics (PASS-Only &amp; $d_0 \\geq 60\\,\\mu\\mathrm{{m}}$)</div>
-            <div class="card-body table-responsive">
-                {cond_table_html}
-            </div>
-        </div>
+  <div class="card"><div class="card-h">Paired Trajectory Statistics (PASS-Only &amp; {gate})</div>
+    <div class="card-b">{table(condition_summary_df)}<p class="muted">{footnote}</p></div></div>
 
-        <!-- Exclusion Audit -->
-        <div class="card shadow-sm">
-            <div class="card-header bg-white font-weight-bold h5 mb-0">Multilevel 10-Stage Exclusion Audit</div>
-            <div class="card-body table-responsive">
-                {audit_table_html}
-            </div>
-        </div>
+  <div class="card"><div class="card-h">Multilevel Exclusion Audit</div>
+    <div class="card-b">{table(exclusion_audit_df)}</div></div>
 
-        <!-- Figures Gallery -->
-        <div class="row">
-            {''.join(fig_cards)}
-        </div>
-    </div>
+  <section class="figs">{fig_cards}</section>
+</main>
 </body>
 </html>
 """
-        return html

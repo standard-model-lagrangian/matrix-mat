@@ -17,6 +17,23 @@ from skimage import measure
 
 logger = logging.getLogger("matrix_mat.brightfield.review")
 
+# Lossless formats accepted for manual masks (JPEG is deliberately excluded).
+MASK_EXTENSIONS = (".png", ".tif", ".tiff")
+# Largest number of labels for which an integer mask is interpreted as an instance label image.
+MAX_MANUAL_LABELS = 1000
+
+
+def _looks_like_label_image(arr: np.ndarray, nonzero_labels: np.ndarray) -> bool:
+    """True only for integer masks whose labels are exactly 1..K (K >= 2, small)."""
+    if not np.issubdtype(arr.dtype, np.integer):
+        return False
+    k = len(nonzero_labels)
+    if k < 2 or k > MAX_MANUAL_LABELS:
+        return False
+    if arr.dtype == np.uint8 and int(nonzero_labels.max()) == 255:
+        return False
+    return bool(np.array_equal(nonzero_labels, np.arange(1, k + 1)))
+
 # Exact 10-column schema mandated by specification
 VALIDATION_CSV_COLUMNS: List[str] = [
     "image_id",
@@ -55,7 +72,7 @@ class ReviewManager:
           - <pair_key>_<timepoint>_mask.png / .tif / .tiff
         """
         candidates: List[Path] = []
-        for ext in [".png", ".tif", ".tiff", ".jpg", ".jpeg"]:
+        for ext in MASK_EXTENSIONS:
             candidates.append(self.review_dir / f"{image_stem}{ext}")
             candidates.append(self.review_dir / f"{image_stem}_mask{ext}")
             if pair_key and timepoint:
@@ -67,38 +84,64 @@ class ReviewManager:
                 logger.info(f"Found manual ground truth mask: {cand.name}")
                 return cand
 
+        # JPEG is lossy (compression ringing turns a binary mask into many grey levels); never used.
+        for ext in (".jpg", ".jpeg"):
+            for stem in filter(None, [image_stem, f"{image_stem}_mask",
+                                      f"{pair_key}_{timepoint}" if pair_key and timepoint else None]):
+                cand = self.review_dir / f"{stem}{ext}"
+                if cand.exists():
+                    logger.warning(
+                        f"Ignoring manual mask {cand.name}: JPEG masks are lossy and not supported; "
+                        "save the mask as PNG or TIFF."
+                    )
         return None
 
-    def load_manual_mask(self, mask_path: Union[str, Path]) -> np.ndarray:
+    def load_manual_mask(self, mask_path: Union[str, Path], expected_shape: Optional[Tuple[int, int]] = None) -> np.ndarray:
         """
-        Loads manual ground truth mask image and returns a 2D int32 labeled mask.
-        Handles binary masks (converting connected components to distinct labels)
-        and existing multi-label integer masks.
+        Loads a manual ground truth mask and returns a 2D int32 labeled mask.
+
+        Masks are treated as BINARY (foreground = connected components) unless they are a genuine
+        integer label image: integer dtype, more than one label, labels exactly 1..K with
+        K <= MAX_MANUAL_LABELS, and not an 8-bit image that reaches 255 (an anti-aliased binary
+        drawing). Grey-level binary drawings are thresholded at half their maximum.
+
+        Raises ValueError if ``expected_shape`` is given and the mask's (H, W) differs.
         """
         mask_path = Path(mask_path)
+        if mask_path.suffix.lower() in (".jpg", ".jpeg"):
+            raise ValueError(f"JPEG manual masks are not supported (lossy): {mask_path}")
         with Image.open(mask_path) as img:
             arr = np.array(img)
 
-        # Convert RGB/RGBA to single channel
+        # Convert RGB/RGBA to single channel (alpha ignored; any coloured channel counts)
         if arr.ndim == 3:
-            arr = arr[:, :, 0]
+            arr = arr[:, :, :3].max(axis=2) if arr.shape[2] >= 3 else arr[:, :, 0]
 
-        # Case 1: Boolean mask
+        if expected_shape is not None and tuple(arr.shape[:2]) != tuple(expected_shape[:2]):
+            raise ValueError(
+                f"Manual mask {mask_path.name} has shape {arr.shape[:2]} but the image is {tuple(expected_shape[:2])}"
+            )
+
         if arr.dtype == bool:
             labeled, _ = measure.label(arr, return_num=True)
             return labeled.astype(np.int32)
 
-        # Case 2: Binary mask (0 and 255)
         unique_vals = np.unique(arr)
-        if len(unique_vals) <= 2 and (unique_vals.max() > 1):
-            labeled, _ = measure.label(arr > 0, return_num=True)
-            return labeled.astype(np.int32)
-        elif len(unique_vals) <= 2 and (unique_vals.max() == 1):
-            labeled, _ = measure.label(arr > 0, return_num=True)
-            return labeled.astype(np.int32)
-        else:
-            # Multi-label integer mask
+        nonzero = unique_vals[unique_vals > 0]
+        if _looks_like_label_image(arr, nonzero):
             return arr.astype(np.int32)
+
+        if len(unique_vals) <= 2:
+            fg = arr > 0
+        else:
+            # Anti-aliased / grey-level binary drawing: threshold at half the maximum.
+            fg = arr > (float(unique_vals.max()) / 2.0)
+            logger.info(
+                f"Manual mask {mask_path.name}: {len(unique_vals)} grey levels treated as a binary drawing "
+                "(thresholded at 50% of max) rather than a label image."
+            )
+        labeled, _ = measure.label(fg, return_num=True)
+        return labeled.astype(np.int32)
 
     @staticmethod
     def compute_agreement(auto_mask: np.ndarray, manual_mask: np.ndarray) -> Tuple[float, float]:
@@ -145,12 +188,10 @@ class ReviewManager:
             return auto_mask, "automated", None
 
         try:
-            manual_mask = self.load_manual_mask(manual_path)
-            # Ensure shape matches
-            if manual_mask.shape[:2] != auto_mask.shape[:2]:
-                logger.warning(
-                    f"Manual mask shape {manual_mask.shape} does not match auto mask {auto_mask.shape} for {image_id}. Keeping auto mask."
-                )
+            try:
+                manual_mask = self.load_manual_mask(manual_path, expected_shape=auto_mask.shape[:2])
+            except ValueError as e:
+                logger.warning(f"{e} for {image_id}. Keeping auto mask.")
                 return auto_mask, "automated", None
 
             dice, iou = self.compute_agreement(auto_mask, manual_mask)

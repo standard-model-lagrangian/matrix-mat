@@ -12,10 +12,8 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-import cv2
 import numpy as np
 from scipy import ndimage
 from skimage import measure, morphology, segmentation
@@ -30,6 +28,9 @@ logger = logging.getLogger("matrix_mat.if_density.postprocess")
 REFERENCE_NUCLEAR_VOLUME_UM3 = 841.04
 DEFAULT_MIN_VOL_UM3 = 210.0   # ~0.25x reference volume
 DEFAULT_MAX_VOL_UM3 = 3364.0  # ~4.0x reference volume
+# When size_gate.min_vol_um3 / max_vol_um3 are not set they are derived from the reference volume.
+MIN_VOL_MULTIPLIER = 0.25
+MAX_VOL_MULTIPLIER = 4.0
 
 
 @dataclass
@@ -59,6 +60,63 @@ class PostprocessStats:
     removed_sizes_um3: List[float] = field(default_factory=list)
     split_events: List[Dict[str, Any]] = field(default_factory=list)
     enabled: bool = True
+    # Steps that actually ran on this field (deduplication of a 2D label image is a no-op and is not listed).
+    methods_applied: List[str] = field(default_factory=list)
+    # Width of the image-border strip (px) whose nuclei were excluded; 0 when border exclusion is off.
+    border_clearance_px: int = 0
+    # Resolved size-gate bounds actually used (see resolve_size_gate_bounds).
+    size_gate_resolved: Dict[str, Any] = field(default_factory=dict)
+
+
+def resolve_size_gate_bounds(postprocess_config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Resolve reference volume and size-gate bounds from a post-processing config.
+    min/max default (None) to MIN_VOL_MULTIPLIER/MAX_VOL_MULTIPLIER x reference volume.
+    Returns the values and their source, for both the gate and provenance.
+    """
+    size_cfg = postprocess_config.get("size_gate") or {}
+    ref_cfg = size_cfg.get("reference_vol_um3") or postprocess_config.get("reference_vol_um3")
+    ref_vol = float(ref_cfg) if ref_cfg is not None else float("nan")
+    out: Dict[str, Any] = {"reference_vol_um3": None if ref_cfg is None else ref_vol}
+    for key, mult in (("min_vol_um3", MIN_VOL_MULTIPLIER), ("max_vol_um3", MAX_VOL_MULTIPLIER)):
+        val = size_cfg.get(key)
+        if val is None:
+            out[key] = mult * ref_vol if ref_cfg is not None else None
+            out[f"{key}_source"] = f"derived: {mult} x reference_vol_um3"
+        else:
+            out[key] = float(val)
+            out[f"{key}_source"] = "config"
+        v = out[key]
+        out[f"{key.replace('_vol_um3', '')}_multiplier_of_reference"] = (
+            round(v / ref_vol, 4) if (v is not None and ref_cfg is not None and ref_vol > 0) else None
+        )
+    return out
+
+
+def border_strip_mask(shape: Tuple[int, ...], clearance_px: int) -> np.ndarray:
+    """
+    Boolean mask of the image-border strip used by identify_border_objects: an object with any pixel in
+    this strip is border-excluded (rows/cols <= clearance_px from the top/left, >= size-1-clearance_px from
+    the bottom/right). Removing the same strip from the density area keeps numerator and denominator
+    consistent.
+    """
+    h, w = shape[:2]
+    strip = np.zeros((h, w), dtype=bool)
+    if clearance_px <= 0:
+        return strip
+    c = int(clearance_px)
+    strip[: c + 1, :] = True
+    strip[max(0, h - c - 1):, :] = True
+    strip[:, : c + 1] = True
+    strip[:, max(0, w - c - 1):] = True
+    return strip
+
+
+def clearance_um_to_px(clearance_um: float, pixel_size_um: float) -> int:
+    """Border clearance in pixels (0 when disabled)."""
+    if clearance_um <= 0:
+        return 0
+    return max(1, int(round(clearance_um / max(1e-6, pixel_size_um))))
 
 
 def compute_object_volume(area_px: int | float, pixel_size_um: float) -> Tuple[float, float]:
@@ -107,16 +165,10 @@ def apply_size_gate(
         return masks.copy(), 0, 0, []
 
     clean = masks.copy()
-    for lbl in labels_to_remove:
-        clean[clean == lbl] = 0
+    clean[np.isin(clean, np.fromiter(labels_to_remove, dtype=clean.dtype))] = 0
 
-    # Relabel compactly
-    relabeled = np.zeros_like(clean)
-    new_lbl = 1
-    for p in measure.regionprops(clean):
-        relabeled[clean == p.label] = new_lbl
-        new_lbl += 1
-
+    # Relabel compactly (label order preserved)
+    relabeled = segmentation.relabel_sequential(clean)[0]
     return relabeled, n_small, n_large, removed_sizes
 
 
@@ -191,6 +243,13 @@ def split_merged_nuclei(
         if n_seeds > 1:
             dist = ndimage.distance_transform_edt(sub_mask)
             sub_split = segmentation.watershed(-dist, seed_labels, mask=sub_mask)
+            # Parent pixels the flood did not reach (parts of the mask without a seed) go to the nearest
+            # child, so accepting a split never deletes parent pixels.
+            unreached = sub_mask & (sub_split == 0)
+            if unreached.any() and (sub_split > 0).any():
+                _, (ir, ic) = ndimage.distance_transform_edt(sub_split == 0, return_indices=True)
+                sub_split = sub_split.copy()
+                sub_split[unreached] = sub_split[ir[unreached], ic[unreached]]
             child_labels = [c for c in np.unique(sub_split) if c > 0]
 
             # Check child size criteria
@@ -253,13 +312,8 @@ def split_merged_nuclei(
                 reversion_reason="Single seed found; no split boundary",
             ))
 
-    # Relabel compactly
-    relabeled = np.zeros_like(result)
-    new_lbl = 1
-    for p in measure.regionprops(result):
-        relabeled[result == p.label] = new_lbl
-        new_lbl += 1
-
+    # Relabel compactly (label order preserved)
+    relabeled = segmentation.relabel_sequential(result)[0]
     return relabeled, n_candidates, n_accepted, n_reverted, n_children_created, split_events
 
 
@@ -276,7 +330,7 @@ def identify_border_objects(
         return set(), 0
 
     h, w = masks.shape[:2]
-    clearance_px = max(1, int(round(clearance_um / max(1e-6, pixel_size_um))))
+    clearance_px = clearance_um_to_px(clearance_um, pixel_size_um)
 
     props = measure.regionprops(masks)
     border_labels: Set[int] = set()
@@ -327,29 +381,34 @@ def postprocess_field_masks(
         )
         return raw_masks.copy(), set(), stats
 
-    # 1. Deduplicate (documented no-op on disjoint label images)
-    dedup_cfg = postprocess_config.get("deduplicate", {})
+    methods_applied: List[str] = []
+    if raw_masks.ndim != 2:
+        raise ValueError(f"{image_id}: post-processing expects a 2D label image, got shape {raw_masks.shape}")
+
+    # 1. Deduplicate. The input is a 2D label image (disjoint partition), so this cannot remove anything;
+    # it is kept as a guard but is not reported as an applied method.
+    dedup_cfg = postprocess_config.get("deduplicate") or {}
     iou_thresh = float(dedup_cfg.get("iou_threshold", 0.50))
     masks_dedup, n_dups = deduplicate_masks(raw_masks, iou_threshold=iou_thresh)
+    if n_dups > 0:
+        methods_applied.append("deduplicate")
 
-    # 2. Derive reference volume and bounds from config (literature / annotation reference) or dynamic cohort/image median
-    size_cfg = postprocess_config.get("size_gate", {})
+    size_cfg = postprocess_config.get("size_gate") or {}
     size_enabled = bool(size_cfg.get("enabled", True))
-    split_cfg = postprocess_config.get("splitting", {})
+    split_cfg = postprocess_config.get("splitting") or {}
     split_enabled = bool(split_cfg.get("enabled", True))
 
     # 2. Reference nuclear volume comes from configuration only. Deriving it from the masks being
     # filtered (per-image or per-cohort median) would make every gate relative to the data it judges.
-    ref_vol_cfg = size_cfg.get("reference_vol_um3") or postprocess_config.get("reference_vol_um3")
-    if ref_vol_cfg is None and (size_enabled or split_enabled):
+    bounds = resolve_size_gate_bounds(postprocess_config)
+    if bounds["reference_vol_um3"] is None and (size_enabled or split_enabled):
         raise ValueError(
             f"{image_id}: post-processing size gate/splitting is enabled but size_gate.reference_vol_um3 "
             "is not configured (set it, with reference_citation, in the YAML)"
         )
-    ref_vol = float(ref_vol_cfg) if ref_vol_cfg is not None else float("nan")
-
-    min_vol = float(size_cfg.get("min_vol_um3", 0.25 * ref_vol))
-    max_vol = float(size_cfg.get("max_vol_um3", 4.0 * ref_vol))
+    ref_vol = bounds["reference_vol_um3"] if bounds["reference_vol_um3"] is not None else float("nan")
+    min_vol = bounds["min_vol_um3"] if bounds["min_vol_um3"] is not None else float("nan")
+    max_vol = bounds["max_vol_um3"] if bounds["max_vol_um3"] is not None else float("nan")
 
     # 3. Split merged nuclei (MUST run BEFORE size gate so multi-nuclear clumps are not discarded as oversized)
     if split_enabled:
@@ -367,6 +426,7 @@ def postprocess_field_masks(
             max_vol_um3=max_vol,
             reference_vol_um3=ref_vol,
         )
+        methods_applied.append("split_merged_seeded_watershed")
     else:
         masks_split = masks_dedup
         n_cand, n_acc, n_rev, n_kids = 0, 0, 0, 0
@@ -377,16 +437,20 @@ def postprocess_field_masks(
         masks_gated, n_small, n_large, removed_sizes = apply_size_gate(
             masks_split, pixel_size_um, min_vol, max_vol
         )
+        methods_applied.append("size_gate")
     else:
         masks_gated = masks_split
         n_small, n_large, removed_sizes = 0, 0, []
 
     # 5. Border exclusion
-    border_cfg = postprocess_config.get("border_exclusion", {})
+    border_cfg = postprocess_config.get("border_exclusion") or {}
     border_enabled = bool(border_cfg.get("enabled", True))
     clearance_um = float(border_cfg.get("clearance_um", 5.85)) if border_enabled else 0.0
+    clearance_px = clearance_um_to_px(clearance_um, pixel_size_um)
 
     border_labels, n_border = identify_border_objects(masks_gated, pixel_size_um, clearance_um)
+    if clearance_px > 0:
+        methods_applied.append("border_exclusion")
 
     n_final = int(masks_gated.max())
     n_included = n_final - n_border
@@ -406,6 +470,9 @@ def postprocess_field_masks(
         n_final_included=n_included,
         removed_sizes_um3=removed_sizes,
         split_events=[e.__dict__ for e in split_evs],
+        methods_applied=methods_applied,
+        border_clearance_px=clearance_px,
+        size_gate_resolved=bounds,
     )
 
     return masks_gated, border_labels, stats

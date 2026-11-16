@@ -25,7 +25,9 @@ class DecisionsLogger:
         self,
         log_path: Optional[Union[str, Path]] = None,
         output_dir: Optional[Union[str, Path]] = None,
+        reset: bool = False,
     ):
+        """``reset=True`` starts a fresh log (truncates an existing file) for a new run."""
         if output_dir is not None:
             self.jsonl_path = Path(output_dir) / "decisions.jsonl"
             self.log_path = self.jsonl_path
@@ -43,6 +45,16 @@ class DecisionsLogger:
             out_root = resolve_output_root()
             self.jsonl_path = out_root / "decisions.jsonl"
             self.log_path = self.jsonl_path
+        if reset:
+            self.reset()
+
+    def reset(self) -> None:
+        """Truncate decisions.jsonl so it only contains records from the current run."""
+        try:
+            self.jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+            self.jsonl_path.write_text("", encoding="utf-8")
+        except Exception as e:
+            logger.warning(f"Could not reset decisions log at {self.jsonl_path}: {e}")
 
     def log_decision(
         self,

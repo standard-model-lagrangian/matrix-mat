@@ -59,7 +59,8 @@ preprocess:
   percentile_low: 1.0
   percentile_high: 99.0
 
-  # Whether to export normalized/corrected images to output/corrected_images/
+  # Whether to export flat-field corrected, percentile-normalised 8-bit PNGs of every processed
+  # image to <output_dir>/corrected_images/<image_id>.png (for visual inspection only)
   save_corrected_images: true
 
   # Target downsampled diameter range for deep learning backends (Cellpose)
@@ -99,6 +100,19 @@ segmentation:
 
   # Minimum Euclidean distance (pixels) between regional maxima in watershed
   watershed_min_distance_px: 25
+
+  # Per-image fallback tiers, used only when fallback_policy is 'per_image'
+  fallback_backend: "cpdino"
+  last_resort_backend: "classical"
+
+  # Compute device for Cellpose backends: 'auto' (CUDA > Apple MPS > CPU), 'cpu', 'cuda', 'cuda:N', 'mps'
+  device: "auto"
+
+  # Classical backend candidate gates (applied on the downsampled image before QC):
+  # minimum equivalent diameter (um), minimum dark contrast vs annular ring, ring width (px)
+  classical_min_d_um: 40.0
+  classical_min_contrast: 0.10
+  classical_ring_width_px: 15
 
 # ------------------------------------------------------------------------------
 # 5. Quality Control (QC) Gating Protocol (Zero Silent Drops)
@@ -140,8 +154,21 @@ qc:
   # Maximum eccentricity: sqrt(1 - (b/a)^2) of fitted ellipse
   max_eccentricity: 0.82
 
-  # Maximum number of spheroids per FOV (0 means unlimited)
+  # Maximum number of spheroids per FOV (0 means unlimited). Objects beyond the limit are
+  # demoted PASS -> REVIEW; FAIL objects are never promoted.
   max_objects_per_fov: 0
+
+  # Cross-FOV duplicate removal ("duplicate focal plane").
+  # ASSUMPTION: different FOV numbers of the same (condition, gel, timepoint) may be z-planes of
+  # ONE physical field, so pixel coordinates are comparable across FOVs and two objects at almost
+  # the same position are the same spheroid (the lower-contrast copy is flagged FAIL).
+  # Whether the acquisition really works this way is not recorded in the files. If FOVs are
+  # distinct fields of the well, set dedup_cross_fov: false, otherwise real spheroids that happen
+  # to sit at similar coordinates in different fields are discarded.
+  dedup_cross_fov: true
+  # Maximum centroid distance (micrometres) for two objects to count as duplicates; converted to
+  # pixels with each image's pixel size. 53.16 um = the historical 35 px at 1.518817 um/px.
+  dedup_max_distance_um: 53.158595
 
 # ------------------------------------------------------------------------------
 # 6. Hungarian Temporal Centroid Pairing (Day 0 -> Day 7)
@@ -162,6 +189,8 @@ stats:
   # Baseline control hydrogel formulation for two-sample permutation tests
   control_condition: "Mat"
 
+  # The three trajectory gates below are applied during pairing. Setting them here is equivalent
+  # to setting them under pairing:; setting different values in both sections is an error.
   # Denominator gate: minimum Day 0 diameter (um) required to compute fold change (V7 / V0).
   # Pairs with d0 < 60 um are excluded from fold-change stats to prevent near-zero debris inflation.
   min_t0_d_um_denominator: 60.0

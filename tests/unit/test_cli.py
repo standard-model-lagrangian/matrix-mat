@@ -231,7 +231,8 @@ def test_if_preflight_follows_config_allow_unpaired(tmp_path, monkeypatch, allow
     (tmp_path / "models").mkdir()
     (tmp_path / "models" / "cpsam_v2").write_bytes(b"x")
     cfg = _yaml.safe_load((REPO_ROOT / "configs" / "prepost_ablation.yaml").read_text())
-    cfg.update({"data_dir": str(data), "allow_unpaired": allow})
+    # The synthetic fixture has no embedded pixel scale; preflight honours allow_uncalibrated from the config.
+    cfg.update({"data_dir": str(data), "allow_unpaired": allow, "allow_uncalibrated": True})
     cfg["model"]["pretrained_model"] = str(tmp_path / "models" / "cpsam_v2")
     cfg_path = tmp_path / "c.yaml"
     cfg_path.write_text(_yaml.safe_dump(cfg))

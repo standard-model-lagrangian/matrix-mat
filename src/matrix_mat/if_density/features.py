@@ -5,8 +5,9 @@ Feature extraction: per-object physical morphometrics and per-image spheroid-lev
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple, Union
 
 import cv2
 import numpy as np
@@ -42,23 +43,72 @@ def compute_volumetric_density_3d(n_nuclei: int, z_stack_or_volume_um3: Any, is_
     return float(n_nuclei / vol) * 1e9
 
 
-def compute_spheroid_extent(
+# Below this many actin-mask pixels the actin threshold is treated as failed and the nuclei convex hull
+# is used instead (flagged per field).
+MIN_ACTIN_MASK_PX = 100
+
+
+@dataclass
+class SpheroidExtent:
+    """
+    Spheroid cross-section estimate for one field.
+    Unpacks like the legacy 4-tuple (volume_um3, centroid_y_um, centroid_x_um, max_radius_um).
+    """
+    volume_um3: float
+    centroid_y_um: float
+    centroid_x_um: float
+    max_radius_um: float
+    area_um2: float
+    method_used: str  # 'actin_threshold' | 'nuclei_convex_hull' | 'nuclei_convex_hull_fallback' | 'none'
+    hull_fallback: bool
+    mask: Optional[np.ndarray] = None
+
+    def as_tuple(self) -> Tuple[float, float, float, float]:
+        return (self.volume_um3, self.centroid_y_um, self.centroid_x_um, self.max_radius_um)
+
+    def __iter__(self) -> Iterator[float]:
+        return iter(self.as_tuple())
+
+    def __getitem__(self, i: int) -> float:
+        return self.as_tuple()[i]
+
+    def __len__(self) -> int:
+        return 4
+
+
+def prepare_actin_for_extent(raw_actin: np.ndarray) -> np.ndarray:
+    """
+    Fixed, arm-independent actin preparation for the spheroid extent: the RAW actin channel scaled to
+    uint8 by bit depth (8-bit data unchanged). No background subtraction or percentile normalisation,
+    so every pre/post-processing arm of a field gets the same density denominator.
+    """
+    from matrix_mat.if_density.preprocess import to_uint8
+    return to_uint8(raw_actin)
+
+
+def compute_spheroid_extent_details(
     actin_img: np.ndarray,
     nuclear_masks: np.ndarray,
     pixel_size_um: float,
     method: str = "actin_threshold",
-    actin_background_percentile: float = 50.0,
-) -> Tuple[float, float, float, float]:
+) -> SpheroidExtent:
     """
-    Estimate spheroid volume, centroid (y, x in um), and max radius (um).
-    Returns (spheroid_volume_um3, centroid_y_um, centroid_x_um, max_radius_um).
+    Estimate the spheroid cross-section mask, its area, equivalent volume, centroid and radius.
+    method='actin_threshold': Otsu on the blurred actin image, holes filled, largest component; when that
+    mask has < MIN_ACTIN_MASK_PX pixels the convex hull of the nuclei masks is used and hull_fallback=True.
+    method='nuclei_convex_hull': convex hull of the nuclei masks.
     """
-    h, w = actin_img.shape[:2]
+    if method not in ("actin_threshold", "nuclei_convex_hull"):
+        raise ValueError(f"Unknown spheroid_extent_method '{method}'")
+    actin_u8 = actin_img if actin_img.dtype == np.uint8 else prepare_actin_for_extent(actin_img)
+    h, w = actin_u8.shape[:2]
     spheroid_mask = np.zeros((h, w), dtype=bool)
+    method_used = "none"
+    hull_fallback = False
 
     if method == "actin_threshold":
         # Otsu or background cutoff
-        smooth = cv2.GaussianBlur(actin_img, (15, 15), 0)
+        smooth = cv2.GaussianBlur(actin_u8, (15, 15), 0)
         thresh_val, binary = cv2.threshold(smooth, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         # Binary closing and hole filling
         filled = ndimage.binary_fill_holes(binary > 0)
@@ -68,19 +118,29 @@ def compute_spheroid_extent(
             props = measure.regionprops(labeled)
             largest = max(props, key=lambda p: p.area)
             spheroid_mask = (labeled == largest.label)
+            method_used = "actin_threshold"
 
-    # Fallback to convex hull of nuclear masks if actin mask is empty or requested
-    if np.sum(spheroid_mask) < 100 and nuclear_masks.max() > 0:
-        nuc_binary = (nuclear_masks > 0)
-        try:
-            from skimage.morphology import convex_hull_image
-            spheroid_mask = convex_hull_image(nuc_binary)
-        except Exception:
-            spheroid_mask = nuc_binary
+    use_hull = method == "nuclei_convex_hull" or np.sum(spheroid_mask) < MIN_ACTIN_MASK_PX
+    if use_hull:
+        hull_fallback = method == "actin_threshold"
+        if nuclear_masks.max() > 0:
+            nuc_binary = (nuclear_masks > 0)
+            try:
+                from skimage.morphology import convex_hull_image
+                spheroid_mask = convex_hull_image(nuc_binary)
+            except Exception:
+                spheroid_mask = nuc_binary
+            method_used = "nuclei_convex_hull_fallback" if hull_fallback else "nuclei_convex_hull"
+        elif hull_fallback:
+            # Nothing to fall back to; keep whatever (tiny) actin mask there was.
+            hull_fallback = False
 
     if np.sum(spheroid_mask) == 0:
         # Spheroid mask empty: return NaN rather than 1 um^3 fallback
-        return float("nan"), (h / 2.0) * pixel_size_um, (w / 2.0) * pixel_size_um, float("nan")
+        return SpheroidExtent(
+            float("nan"), (h / 2.0) * pixel_size_um, (w / 2.0) * pixel_size_um, float("nan"),
+            area_um2=float("nan"), method_used="none", hull_fallback=False, mask=spheroid_mask,
+        )
 
     area_px = float(np.sum(spheroid_mask))
     area_um2 = area_px * (pixel_size_um ** 2)
@@ -94,7 +154,39 @@ def compute_spheroid_extent(
     cx_um = cx_px * pixel_size_um
     max_radius_um = (eq_d_um / 2.0)
 
-    return spheroid_vol_um3, cy_um, cx_um, max_radius_um
+    return SpheroidExtent(
+        spheroid_vol_um3, cy_um, cx_um, max_radius_um,
+        area_um2=area_um2, method_used=method_used, hull_fallback=hull_fallback, mask=spheroid_mask,
+    )
+
+
+def compute_spheroid_extent(
+    actin_img: np.ndarray,
+    nuclear_masks: np.ndarray,
+    pixel_size_um: float,
+    method: str = "actin_threshold",
+) -> Tuple[float, float, float, float]:
+    """
+    Estimate spheroid volume, centroid (y, x in um), and max radius (um).
+    Returns (spheroid_volume_um3, centroid_y_um, centroid_x_um, max_radius_um).
+    """
+    return compute_spheroid_extent_details(actin_img, nuclear_masks, pixel_size_um, method=method).as_tuple()
+
+
+def density_area_um2(extent: SpheroidExtent, pixel_size_um: float, border_clearance_px: int = 0) -> float:
+    """
+    Spheroid area used as the density denominator: the extent mask minus the image-border strip whose
+    nuclei are excluded from the count (postprocess.border_strip_mask), so numerator and denominator
+    cover the same region.
+    """
+    if extent.mask is None or np.isnan(extent.area_um2):
+        return extent.area_um2
+    if border_clearance_px <= 0:
+        return extent.area_um2
+    from matrix_mat.if_density.postprocess import border_strip_mask
+    strip = border_strip_mask(extent.mask.shape, border_clearance_px)
+    area_px = float(np.count_nonzero(extent.mask & ~strip))
+    return area_px * (pixel_size_um ** 2) if area_px > 0 else float("nan")
 
 
 def extract_objects_and_image_features(
@@ -109,12 +201,14 @@ def extract_objects_and_image_features(
     feature_config: Dict[str, Any],
     border_excluded_labels: Optional[Set[int]] = None,
     clearance_um: float = 0.0,
-    spheroid_extent: Optional[Tuple[float, float, float, float]] = None,
+    spheroid_extent: Optional[Union[SpheroidExtent, Tuple[float, float, float, float]]] = None,
+    border_clearance_px: int = 0,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
     Extract per-object morphology and per-image density and aggregate statistics.
     Objects within clearance_um get excluded_border=True and are excluded from density calculations.
-    Returns (objects_rows, per_image_row).
+    The density denominator excludes the same image-border strip (border_clearance_px, or clearance_um
+    when labels are derived here). Returns (objects_rows, per_image_row).
     """
     if pixel_size_um is None or pixel_size_um <= 0:
         raise ValueError(f"Invalid physical pixel calibration: {pixel_size_um} um/pixel for {image_id}")
@@ -122,17 +216,25 @@ def extract_objects_and_image_features(
     h, w = nuclear_img.shape[:2]
     n_nuclei = int(dedup_masks.max())
 
-    if spheroid_extent is not None:
-        sph_vol_um3, sph_cy_um, sph_cx_um, max_r_um = spheroid_extent
+    extent: Optional[SpheroidExtent]
+    if isinstance(spheroid_extent, SpheroidExtent):
+        extent = spheroid_extent
+    elif spheroid_extent is not None:
+        extent = None
     else:
         extent_method = feature_config.get("spheroid_extent_method", "actin_threshold")
-        sph_vol_um3, sph_cy_um, sph_cx_um, max_r_um = compute_spheroid_extent(
-            actin_img, dedup_masks, pixel_size_um, method=extent_method
+        extent = compute_spheroid_extent_details(
+            prepare_actin_for_extent(actin_img), dedup_masks, pixel_size_um, method=extent_method
         )
+    if extent is not None:
+        sph_vol_um3, sph_cy_um, sph_cx_um, max_r_um = extent.as_tuple()
+    else:
+        sph_vol_um3, sph_cy_um, sph_cx_um, max_r_um = spheroid_extent  # type: ignore[misc]
 
     # Determine border labels if not provided
     if border_excluded_labels is None and clearance_um > 0:
         clearance_px = max(1, int(round(clearance_um / pixel_size_um)))
+        border_clearance_px = border_clearance_px or clearance_px
         border_excluded_labels = set()
         for p in measure.regionprops(dedup_masks):
             minr, minc, maxr, maxc = p.bbox
@@ -171,11 +273,12 @@ def extract_objects_and_image_features(
 
             # Actin intensity features under nuclear mask
             mean_actin = float(p.intensity_mean if hasattr(p, "intensity_mean") else getattr(p, "mean_intensity", 0.0))
-            integrated_actin = float(np.sum(actin_img[dedup_masks == p.label]))
+            integrated_actin = float(p.image_intensity[p.image].sum())
 
             # Normalized radial distance from spheroid centroid
             dist_to_center_um = np.sqrt((cy_um - sph_cy_um) ** 2 + (cx_um - sph_cx_um) ** 2)
-            norm_radial_dist = dist_to_center_um / max(1.0, max_r_um)
+            radius_ok = max_r_um is not None and np.isfinite(max_r_um) and max_r_um > 0
+            norm_radial_dist = dist_to_center_um / max(1.0, max_r_um) if radius_ok else float("nan")
 
             # Edge touching
             minr, minc, maxr, maxc = p.bbox
@@ -224,8 +327,12 @@ def extract_objects_and_image_features(
         spheroid_area_um2 = np.pi * (max_r_um ** 2)
     else:
         spheroid_area_um2 = float("nan")
+    if extent is not None:
+        denom_area_um2 = density_area_um2(extent, pixel_size_um, border_clearance_px)
+    else:
+        denom_area_um2 = spheroid_area_um2
 
-    nuclei_per_mm2 = compute_areal_density(n_valid, spheroid_area_um2)
+    nuclei_per_mm2 = compute_areal_density(n_valid, denom_area_um2)
     median_nuc_vol = float(np.median(nuclear_volumes)) if nuclear_volumes else 0.0
     median_actin = float(np.median(actin_img))
 
@@ -242,6 +349,11 @@ def extract_objects_and_image_features(
         "median_nuclear_volume_um3": round(median_nuc_vol, 2),
         "median_actin_intensity": round(median_actin, 2),
         "flag_summary": qc_flags_list if qc_flags_list else "clean",
+        # Appended columns (existing names unchanged): the denominator actually used, how the extent was
+        # obtained, and whether the actin threshold failed and the nuclei convex hull was used instead.
+        "density_area_um2": round(denom_area_um2, 1) if not np.isnan(denom_area_um2) else np.nan,
+        "spheroid_extent_method": extent.method_used if extent is not None else "provided",
+        "spheroid_extent_hull_fallback": bool(extent.hull_fallback) if extent is not None else False,
     }
 
     return objects_rows, per_image_row

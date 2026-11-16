@@ -164,7 +164,7 @@ def test_cellpose_model_identity(monkeypatch):
 def test_ci_smoke_reports_backend(tmp_path):
     """The smoke test asserts the backend it expected actually ran, so a silent fallback fails."""
     from pathlib import Path
-    from matrix_mat.brightfield.config import PipelineConfig
+    from matrix_mat.brightfield.config import PipelineConfig  # noqa: F811
     from matrix_mat.brightfield.run_pipeline import run_spheroid_pipeline
 
     d0_dir = (REPO_ROOT / "tests/fixtures/synthetic_dataset/Day0")

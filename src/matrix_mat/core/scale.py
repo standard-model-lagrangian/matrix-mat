@@ -13,7 +13,7 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Literal, Optional, Tuple, Union, overload
 from PIL import Image
 import tifffile
 
@@ -23,6 +23,57 @@ logger = logging.getLogger("matrix_mat.core.scale")
 PLAUSIBLE_UM_PER_PX = (0.05, 20.0)
 # OME-XML UnitsLength symbols -> micrometres
 OME_LENGTH_TO_UM = {"µm": 1.0, "um": 1.0, "\u03bcm": 1.0, "nm": 1e-3, "mm": 1e3, "cm": 1e4, "m": 1e6, "pm": 1e-6}
+# ImageJ / Fiji calibration unit names -> micrometres (None = explicitly uncalibrated)
+IMAGEJ_UNIT_TO_UM: Dict[str, Optional[float]] = {
+    "um": 1.0, "µm": 1.0, "\u03bcm": 1.0, "micron": 1.0, "microns": 1.0, "micrometer": 1.0,
+    "micrometre": 1.0, "micrometers": 1.0, "micrometres": 1.0,
+    "nm": 1e-3, "nanometer": 1e-3, "nanometre": 1e-3, "nanometers": 1e-3,
+    "mm": 1e3, "millimeter": 1e3, "millimetre": 1e3, "millimeters": 1e3,
+    "cm": 1e4, "centimeter": 1e4, "centimetre": 1e4, "centimeters": 1e4,
+    "m": 1e6, "meter": 1e6, "metre": 1e6, "meters": 1e6,
+    "inch": 25400.0, "inches": 25400.0, "in": 25400.0,
+    "pixel": None, "pixels": None, "px": None, "": None,
+}
+
+
+def _decode_text(val: Any) -> str:
+    if isinstance(val, bytes):
+        return val.decode("utf-8", errors="ignore")
+    return val if isinstance(val, str) else str(val)
+
+
+def _normalise_unit(unit: str) -> str:
+    u = unit.strip()
+    # ImageJ escapes the micro sign as a literal \u00b5 in the description text.
+    u = re.sub(r"\\u00[bB]5", "\u00b5", u)
+    return u.replace("\u03bc", "\u00b5").lower()
+
+
+def _imagej_unit_factor(unit: str) -> Tuple[bool, Optional[float]]:
+    """Return (known, factor_to_um). factor is None for an explicitly uncalibrated unit (pixel)."""
+    u = _normalise_unit(unit)
+    if u in IMAGEJ_UNIT_TO_UM:
+        return True, IMAGEJ_UNIT_TO_UM[u]
+    return False, None
+
+
+def _lenient_float(val: Any) -> Optional[float]:
+    """Parse numbers such as 4, "4.0", "4x", "40X", " 0.13 NA"; None if no number is present."""
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    m = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", str(val))
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except ValueError:
+        return None
+
+
+def _is_plausible(px: float) -> bool:
+    return PLAUSIBLE_UM_PER_PX[0] <= px <= PLAUSIBLE_UM_PER_PX[1]
 
 
 @dataclass
@@ -45,6 +96,21 @@ class ScaleExtractor:
         self.default_pixel_size_um = float(default_pixel_size_um)
         self.cli_override_um = float(cli_override_um) if cli_override_um is not None else None
 
+    def _rejected(self, reason_source: str, warning: str, **kw: Any) -> ScaleInfo:
+        """A metadata candidate that must not be trusted.
+
+        The configured default pixel size is returned (never the rejected value), with
+        ``is_calibrated=False`` and a ``source`` naming why the embedded value was rejected.
+        """
+        logger.warning(warning)
+        return ScaleInfo(
+            pixel_size_um=self.default_pixel_size_um,
+            source=f"config_default_uncalibrated ({reason_source})",
+            is_calibrated=False,
+            warning=warning,
+            **kw,
+        )
+
     def extract(self, image_path: str | Path) -> ScaleInfo:
         """
         Extract pixel size (um/pixel) and metadata from an image file.
@@ -53,9 +119,13 @@ class ScaleExtractor:
         1. CLI override if specified (--pixel-size)
         2. Embedded EVOS JSON (TIFF Tag 37510 or Tag 270 comment)
         3. OME-XML (Tag 270 PhysicalSizeX / PhysicalSizeY)
-        4. ImageJ metadata tags
+        4. ImageJ metadata (pixelWidth, or XResolution in the ImageJ ``unit``)
         5. Standard TIFF resolution tags (Tags 282, 283, 296)
         6. Default config fallback (with warning log)
+
+        Candidates that are found but rejected (implausible values, 72/96 DPI screen
+        defaults) never contribute their pixel size: the result is the configured default
+        with ``is_calibrated=False`` and the rejection reason in ``source``/``warning``.
         """
         image_path = Path(image_path)
 
@@ -71,6 +141,14 @@ class ScaleExtractor:
         if not image_path.exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
 
+        rejected: Optional[ScaleInfo] = None
+
+        def _strategies(tags: Dict[int, Any], info_dict: Dict[str, Any], size: Tuple[int, int]):
+            yield self._extract_evos_metadata(tags)
+            yield self._extract_ome_xml(tags, size)
+            yield self._extract_imagej(tags, info_dict)
+            yield self._extract_tiff_resolution(tags, info_dict)
+
         # Attempt extraction via tifffile first (most accurate for scientific TIFFs)
         try:
             with tifffile.TiffFile(image_path) as tif:
@@ -78,52 +156,34 @@ class ScaleExtractor:
                     if not isinstance(page, tifffile.TiffPage):
                         continue
                     tags = {tag.code: tag.value for tag in page.tags.values()}
-
-                    # Strategy 2: Check EVOS Tag 37510
-                    evos_info = self._extract_evos_metadata(tags)
-                    if evos_info is not None:
-                        return evos_info
-
-                    # Strategy 3: Check OME-XML (Tag 270)
-                    ome_info = self._extract_ome_xml(tags, (page.shape[1], page.shape[0]) if len(page.shape) >= 2 else (2048, 1536))
-                    if ome_info is not None:
-                        return ome_info
-
-                    # Strategy 4: Check ImageJ metadata
-                    imagej_info = self._extract_imagej(tags, {})
-                    if imagej_info is not None:
-                        return imagej_info
-
-                    # Strategy 5: Check standard TIFF resolution tags
-                    tiff_res_info = self._extract_tiff_resolution(tags, {})
-                    if tiff_res_info is not None:
-                        return tiff_res_info
+                    size = (page.shape[1], page.shape[0]) if len(page.shape) >= 2 else (2048, 1536)
+                    for info in _strategies(tags, {}, size):
+                        if info is None:
+                            continue
+                        if info.is_calibrated:
+                            return info
+                        rejected = rejected or info
+                    if rejected is not None:
+                        return rejected
         except Exception as e:
             logger.debug(f"tifffile extraction encounter: {e}, attempting PIL fallback...")
 
         # Fallback to PIL inspection if tifffile did not resolve
         try:
             with Image.open(image_path) as im:
-                tags = getattr(im, "tag_v2", {})
+                tags = dict(getattr(im, "tag_v2", {}) or {})
                 info_dict = getattr(im, "info", {})
-
-                evos_info = self._extract_evos_metadata(tags)
-                if evos_info is not None:
-                    return evos_info
-
-                ome_info = self._extract_ome_xml(tags, im.size)
-                if ome_info is not None:
-                    return ome_info
-
-                imagej_info = self._extract_imagej(tags, info_dict)
-                if imagej_info is not None:
-                    return imagej_info
-
-                tiff_res_info = self._extract_tiff_resolution(tags, info_dict)
-                if tiff_res_info is not None:
-                    return tiff_res_info
+                for info in _strategies(tags, info_dict, im.size):
+                    if info is None:
+                        continue
+                    if info.is_calibrated:
+                        return info
+                    rejected = rejected or info
         except Exception as e:
             logger.warning(f"Error reading metadata from {image_path.name}: {e}")
+
+        if rejected is not None:
+            return rejected
 
         # Fallback Strategy: Default uncalibrated config
         warn_msg = (
@@ -144,12 +204,7 @@ class ScaleExtractor:
 
         # Check Tag 37510
         if 37510 in tags:
-            val = tags[37510]
-            if isinstance(val, bytes):
-                val = val.decode("utf-8", errors="ignore")
-            elif not isinstance(val, str):
-                val = str(val)
-
+            val = _decode_text(tags[37510])
             m = re.search(r"(\{.*\})", val, re.DOTALL)
             if m:
                 try:
@@ -159,12 +214,7 @@ class ScaleExtractor:
 
         # Check Tag 270 comment block for EVOS JSON
         if json_data is None and 270 in tags:
-            desc = tags[270]
-            if isinstance(desc, bytes):
-                desc = desc.decode("utf-8", errors="ignore")
-            elif not isinstance(desc, str):
-                desc = str(desc)
-
+            desc = _decode_text(tags[270])
             m = re.search(r"<!--\s*(\{.*?\})\s*-->", desc, re.DOTALL)
             if m:
                 try:
@@ -172,89 +222,86 @@ class ScaleExtractor:
                 except json.JSONDecodeError:
                     pass
 
-        if json_data:
-            microns_per_px = None
-            if "MicronsPerPixel" in json_data:
-                try:
-                    microns_per_px = float(json_data["MicronsPerPixel"])
-                except (ValueError, TypeError):
-                    pass
-            elif "Target" in json_data and isinstance(json_data["Target"], dict):
-                try:
-                    microns_per_px = float(json_data["Target"].get("PixelSize", 0))
-                except (ValueError, TypeError):
-                    pass
-            elif "PixelSize" in json_data:
-                try:
-                    microns_per_px = float(json_data["PixelSize"])
-                except (ValueError, TypeError):
-                    pass
+        if not json_data or not isinstance(json_data, dict):
+            return None
 
-            mag = None
-            na = None
-            obj_settings = json_data.get("ObjectiveSettings", {})
-            if isinstance(obj_settings, str):
-                try:
-                    obj_settings = json.loads(obj_settings)
-                except json.JSONDecodeError:
-                    obj_settings = {}
+        microns_per_px: Optional[float] = None
+        if "MicronsPerPixel" in json_data:
+            microns_per_px = _lenient_float(json_data["MicronsPerPixel"])
+        elif "Target" in json_data and isinstance(json_data["Target"], dict):
+            microns_per_px = _lenient_float(json_data["Target"].get("PixelSize"))
+        elif "PixelSize" in json_data:
+            microns_per_px = _lenient_float(json_data["PixelSize"])
 
-            if isinstance(obj_settings, dict):
-                mag = obj_settings.get("Magnification")
-                na = obj_settings.get("NumericalAperture")
+        mag = None
+        na = None
+        obj_settings = json_data.get("ObjectiveSettings", {})
+        if isinstance(obj_settings, str):
+            try:
+                obj_settings = json.loads(obj_settings)
+            except json.JSONDecodeError:
+                obj_settings = {}
 
-            if mag is None and "Magnification" in json_data:
-                mag = json_data.get("Magnification")
-            if na is None and "Objective NA" in json_data:
-                na = json_data.get("Objective NA")
+        if isinstance(obj_settings, dict):
+            mag = obj_settings.get("Magnification")
+            na = obj_settings.get("NumericalAperture")
 
-            software = json_data.get("Software", "EVOS")
+        if mag is None and "Magnification" in json_data:
+            mag = json_data.get("Magnification")
+        if na is None and "Objective NA" in json_data:
+            na = json_data.get("Objective NA")
 
-            if microns_per_px and microns_per_px > 0:
-                if 0.05 <= microns_per_px <= 20.0:
-                    return ScaleInfo(
-                        pixel_size_um=microns_per_px,
-                        source="evos_tag_37510",
-                        magnification=float(mag) if mag is not None else None,
-                        numerical_aperture=float(na) if na is not None else None,
-                        instrument_model=str(software),
-                        is_calibrated=True,
-                        extra_metadata=json_data,
-                    )
-                else:
-                    return ScaleInfo(
-                        pixel_size_um=microns_per_px,
-                        source="evos_tag_37510 (implausible)",
-                        is_calibrated=False,
-                        warning=f"EVOS tag 37510 scale {microns_per_px} um/px outside plausible range [0.05, 20.0] um/px",
-                        extra_metadata=json_data,
-                    )
+        software = json_data.get("Software", "EVOS")
+
+        if microns_per_px and microns_per_px > 0:
+            if _is_plausible(microns_per_px):
+                return ScaleInfo(
+                    pixel_size_um=microns_per_px,
+                    source="evos_tag_37510",
+                    magnification=_lenient_float(mag),
+                    numerical_aperture=_lenient_float(na),
+                    instrument_model=str(software),
+                    is_calibrated=True,
+                    extra_metadata=json_data,
+                )
+            return self._rejected(
+                "evos_tag_37510 implausible",
+                f"EVOS tag 37510 scale {microns_per_px} um/px outside plausible range "
+                f"{list(PLAUSIBLE_UM_PER_PX)} um/px; using default {self.default_pixel_size_um} um/px",
+                extra_metadata=json_data,
+            )
+        return None
+
+    @staticmethod
+    def _local(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1].split(":")[-1]
+
+    def _find_local(self, root: ET.Element, name: str) -> Optional[ET.Element]:
+        for el in root.iter():
+            if isinstance(el.tag, str) and self._local(el.tag) == name:
+                return el
         return None
 
     def _extract_ome_xml(self, tags: Dict[int, Any], image_size: Tuple[int, int]) -> Optional[ScaleInfo]:
-        """Extract scale from OME-XML in Tag 270 (ImageDescription)."""
+        """Extract scale from OME-XML in Tag 270 (ImageDescription), any OME schema year / prefix."""
         if 270 not in tags:
             return None
 
-        desc = tags[270]
-        if isinstance(desc, bytes):
-            desc = desc.decode("utf-8", errors="ignore")
-        elif not isinstance(desc, str):
-            desc = str(desc)
-
-        if "<OME" not in desc:
+        desc = _decode_text(tags[270])
+        if not re.search(r"<(?:\w+:)?OME[\s>]", desc):
             return None
 
         try:
-            xml_str = desc
-            if "<!--" in xml_str:
-                xml_str = xml_str.split("<!--")[0].strip()
+            # Remove comments anywhere (Bio-Formats headers start with one) and anything before
+            # the root element (XML declaration, which may claim a different encoding).
+            xml_str = re.sub(r"<!--.*?-->", "", desc, flags=re.DOTALL)
+            start = re.search(r"<(?:\w+:)?OME[\s>]", xml_str)
+            if start is None:
+                return None
+            xml_str = xml_str[start.start():].strip().rstrip("\x00")
 
             root = ET.fromstring(xml_str)
-            ns = {"ome": "http://www.openmicroscopy.org/Schemas/OME/2016-06"}
-            pixels_elem = root.find(".//ome:Pixels", ns)
-            if pixels_elem is None:
-                pixels_elem = root.find(".//Pixels")
+            pixels_elem = self._find_local(root, "Pixels")
 
             if pixels_elem is not None:
                 phys_x = pixels_elem.attrib.get("PhysicalSizeX")
@@ -267,119 +314,187 @@ class ScaleExtractor:
                         return None
                     pixel_size = float(phys_x) * factor
 
-                    microscope_elem = root.find(".//ome:Microscope", ns)
-                    if microscope_elem is None:
-                        microscope_elem = root.find(".//Microscope")
+                    microscope_elem = self._find_local(root, "Microscope")
                     model = microscope_elem.attrib.get("Model") if microscope_elem is not None else "OME Microscope"
 
-                    plausible = PLAUSIBLE_UM_PER_PX[0] <= pixel_size <= PLAUSIBLE_UM_PER_PX[1]
-                    return ScaleInfo(
-                        pixel_size_um=pixel_size,
-                        source="OME-XML Tag 270" if plausible else "OME-XML Tag 270 (implausible)",
+                    if _is_plausible(pixel_size):
+                        return ScaleInfo(
+                            pixel_size_um=pixel_size,
+                            source="OME-XML Tag 270",
+                            instrument_model=model,
+                            is_calibrated=True,
+                        )
+                    return self._rejected(
+                        "OME-XML Tag 270 implausible",
+                        f"OME pixel size {pixel_size} um/px outside plausible range {PLAUSIBLE_UM_PER_PX}; "
+                        f"using default {self.default_pixel_size_um} um/px",
                         instrument_model=model,
-                        is_calibrated=plausible,
-                        warning=None if plausible else (
-                            f"OME pixel size {pixel_size} um/px outside plausible range {PLAUSIBLE_UM_PER_PX}"
-                        ),
                     )
         except Exception as e:
             logger.debug(f"Failed parsing OME-XML: {e}")
 
         return None
 
+    @staticmethod
+    def _rational(val: Any) -> Optional[float]:
+        if isinstance(val, tuple) and len(val) == 2:
+            try:
+                return float(val[0]) / float(val[1]) if float(val[1]) != 0 else None
+            except (TypeError, ValueError):
+                return None
+        if isinstance(val, (int, float)):
+            return float(val)
+        try:
+            return float(val)  # PIL IFDRational
+        except (TypeError, ValueError):
+            return None
+
     def _extract_imagej(self, tags: Dict[int, Any], info_dict: Dict[str, Any]) -> Optional[ScaleInfo]:
-        """Extract calibration from ImageJ metadata."""
-        raw_desc = tags.get(270, info_dict.get("description", ""))
-        if isinstance(raw_desc, bytes):
-            raw_desc = raw_desc.decode("utf-8", errors="ignore")
-        desc = str(raw_desc)
+        """Extract XY calibration from ImageJ / Fiji metadata.
 
-        if "ImageJ" in desc or "unit=" in desc:
-            unit_match = re.search(r"unit=([a-zA-Zµu]+)", desc)
-            unit = unit_match.group(1) if unit_match else "um"
+        ImageJ stores the XY scale either as ``pixelWidth=`` in the description or (the usual
+        case for files saved by ImageJ/Fiji) as XResolution (pixels per ``unit``) with TIFF
+        ResolutionUnit NONE. The ImageJ ``unit`` is converted to micrometres.
+        """
+        desc = _decode_text(tags.get(270, info_dict.get("description", "")))
+        is_imagej = desc.lstrip().startswith("ImageJ=") or "\nImageJ=" in desc
+        if not (is_imagej or "unit=" in desc):
+            return None
 
-            # ImageJ metadata: 'spacing' is the Z-slice spacing, NOT the XY pixel size!
-            # Only pixelWidth / pixelHeight or scale represent XY resolution.
-            xy_match = re.search(r"pixelWidth=([0-9.]+)", desc) or re.search(r"dxf=([0-9.]+)", desc)
-            if xy_match:
-                scale = float(xy_match.group(1))
-                if unit in ["um", "µm", "micron", "microns"]:
-                    px_size_um = scale
-                elif unit in ["mm"]:
-                    px_size_um = scale * 1000.0
-                elif unit in ["nm"]:
-                    px_size_um = scale / 1000.0
-                else:
-                    px_size_um = scale
+        unit_match = re.search(r"(?m)^\s*unit=(.*?)\s*$", desc) or re.search(r"unit=([^\s,;]+)", desc)
+        unit = unit_match.group(1) if unit_match else None
 
-                if 0.05 <= px_size_um <= 20.0:
-                    return ScaleInfo(pixel_size_um=px_size_um, source="ImageJ metadata", is_calibrated=True)
-                else:
-                    logger.warning(f"ImageJ XY scale {px_size_um:.3f} um/px falls outside plausible range [0.05, 20.0]")
-                    return ScaleInfo(pixel_size_um=px_size_um, source="ImageJ metadata (implausible)", is_calibrated=False)
-        return None
+        # 'spacing' is the Z-slice spacing, NOT the XY pixel size. Only pixelWidth / XResolution are XY.
+        xy_match = re.search(r"pixelWidth=([0-9.eE+-]+)", desc) or re.search(r"dxf=([0-9.eE+-]+)", desc)
+        scale_in_unit: Optional[float] = None
+        origin = "pixelWidth"
+        if xy_match:
+            scale_in_unit = _lenient_float(xy_match.group(1))
+        else:
+            res_unit = tags.get(296, info_dict.get("resolution_unit", 1))
+            try:
+                res_unit = int(res_unit)
+            except (TypeError, ValueError):
+                res_unit = 1
+            res = self._rational(tags.get(282)) if 282 in tags else None
+            # Only interpret XResolution as pixels-per-ImageJ-unit when the TIFF unit is NONE;
+            # inch/cm resolution tags are handled by the standard TIFF strategy.
+            if res_unit == 1 and res and res > 0 and unit is not None:
+                scale_in_unit = 1.0 / res
+                origin = "XResolution"
+
+        if scale_in_unit is None or not scale_in_unit > 0:
+            return None
+
+        if unit is None:
+            unit = "um" if origin == "pixelWidth" else ""
+        known, factor = _imagej_unit_factor(unit)
+        if not known:
+            return self._rejected(
+                f"ImageJ unknown unit {unit!r}",
+                f"ImageJ calibration unit {unit!r} not recognised; using default {self.default_pixel_size_um} um/px",
+            )
+        if factor is None:
+            return self._rejected(
+                "ImageJ unit=pixel",
+                f"ImageJ calibration unit is {unit!r} (uncalibrated); using default {self.default_pixel_size_um} um/px",
+            )
+
+        px_size_um = scale_in_unit * factor
+        if _is_plausible(px_size_um):
+            return ScaleInfo(pixel_size_um=px_size_um, source="ImageJ metadata", is_calibrated=True)
+        return self._rejected(
+            "ImageJ metadata implausible",
+            f"ImageJ XY scale {px_size_um:.4g} um/px falls outside plausible range {list(PLAUSIBLE_UM_PER_PX)}; "
+            f"using default {self.default_pixel_size_um} um/px",
+        )
 
     def _extract_tiff_resolution(self, tags: Dict[int, Any], info_dict: Dict[str, Any]) -> Optional[ScaleInfo]:
         """Extract calibration from standard TIFF resolution tags."""
         unit_val = tags.get(296, info_dict.get("resolution_unit", 1))
+        try:
+            unit_val = int(unit_val)
+        except (TypeError, ValueError):
+            unit_val = 1
         res_x = tags.get(282, info_dict.get("dpi", (1, 1))[0] if isinstance(info_dict.get("dpi"), tuple) else None)
 
-        if res_x is not None:
-            if isinstance(res_x, tuple) and len(res_x) == 2 and res_x[1] != 0:
-                res_val = res_x[0] / res_x[1]
-            elif isinstance(res_x, (int, float)):
-                res_val = float(res_x)
-            else:
-                res_val = None
+        if res_x is None:
+            return None
+        res_val = self._rational(res_x)
+        if not res_val or res_val <= 1.0:
+            return None
 
-            if res_val and res_val > 1.0:
-                # Disallow 72 DPI desktop default resolution tag
-                if unit_val == 2 and abs(res_val - 72.0) < 1.0:
-                    logger.warning(
-                        "TIFF Resolution tag reports 72 DPI (uncalibrated screen default). Rejecting calibration."
-                    )
-                    return ScaleInfo(
-                        pixel_size_um=25400.0 / 72.0,
-                        source="72 DPI screen default (uncalibrated)",
-                        is_calibrated=False,
-                    )
+        # Disallow 72 / 96 DPI desktop default resolution tags
+        if unit_val == 2 and any(abs(res_val - d) < 1.0 for d in (72.0, 96.0)):
+            return self._rejected(
+                f"{round(res_val)} DPI screen default",
+                f"TIFF Resolution tag reports {round(res_val)} DPI (uncalibrated screen default). "
+                f"Rejecting calibration; using default {self.default_pixel_size_um} um/px",
+            )
 
-                # unit_val: 2 = inches, 3 = cm
-                if unit_val == 3:  # pixels / cm
-                    px_size_um = 10000.0 / res_val
-                elif unit_val == 2:  # pixels / inch
-                    px_size_um = 25400.0 / res_val
-                else:
-                    return None
+        # unit_val: 2 = inches, 3 = cm
+        if unit_val == 3:  # pixels / cm
+            px_size_um = 10000.0 / res_val
+        elif unit_val == 2:  # pixels / inch
+            px_size_um = 25400.0 / res_val
+        else:
+            return None
 
-                # Plausibility range check [0.05, 20.0] um/px
-                if not (0.05 <= px_size_um <= 20.0):
-                    logger.warning(
-                        f"TIFF Resolution scale {px_size_um:.3f} um/px falls outside plausible range [0.05, 20.0]"
-                    )
-                    return ScaleInfo(
-                        pixel_size_um=px_size_um,
-                        source="TIFF Resolution Tags (implausible)",
-                        is_calibrated=False,
-                    )
+        if not _is_plausible(px_size_um):
+            return self._rejected(
+                "TIFF Resolution Tags implausible",
+                f"TIFF Resolution scale {px_size_um:.4g} um/px falls outside plausible range "
+                f"{list(PLAUSIBLE_UM_PER_PX)}; using default {self.default_pixel_size_um} um/px",
+            )
 
-                return ScaleInfo(
-                    pixel_size_um=px_size_um,
-                    source="TIFF Resolution Tags",
-                    is_calibrated=True,
-                )
-        return None
+        return ScaleInfo(
+            pixel_size_um=px_size_um,
+            source="TIFF Resolution Tags",
+            is_calibrated=True,
+        )
+
+
+def extract_scale_info(
+    image_path: str | Path,
+    override_um: Optional[float] = None,
+    default_um: float = 1.518817,
+) -> ScaleInfo:
+    """Full :class:`ScaleInfo` (pixel size, source, ``is_calibrated``, warning) for an image."""
+    return ScaleExtractor(default_pixel_size_um=default_um, cli_override_um=override_um).extract(image_path)
+
+
+@overload
+def extract_pixel_size(
+    image_path: str | Path,
+    override_um: Optional[float] = ...,
+    default_um: float = ...,
+    return_info: Literal[False] = ...,
+) -> Tuple[float, str]: ...
+
+
+@overload
+def extract_pixel_size(
+    image_path: str | Path,
+    override_um: Optional[float] = ...,
+    default_um: float = ...,
+    *,
+    return_info: Literal[True],
+) -> ScaleInfo: ...
 
 
 def extract_pixel_size(
     image_path: str | Path,
     override_um: Optional[float] = None,
     default_um: float = 1.518817,
-) -> Tuple[float, str]:
+    return_info: bool = False,
+) -> Union[Tuple[float, str], ScaleInfo]:
     """
     Interface contract function for optical pixel size extraction.
-    Returns (pixel_size_um, source_description).
+
+    Returns ``(pixel_size_um, source_description)``; with ``return_info=True`` returns the
+    full :class:`ScaleInfo` (including ``is_calibrated``) instead.
     """
-    extractor = ScaleExtractor(default_pixel_size_um=default_um, cli_override_um=override_um)
-    info = extractor.extract(image_path)
+    info = extract_scale_info(image_path, override_um=override_um, default_um=default_um)
+    if return_info:
+        return info
     return info.pixel_size_um, info.source

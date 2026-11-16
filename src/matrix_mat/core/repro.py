@@ -23,17 +23,32 @@ def compute_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def default_models_lock_path() -> Path:
+    """Locate models.lock.json independent of the cwd.
+
+    Order: the copy shipped as package data (``matrix_mat/models.lock.json``), then the
+    repository root of a source checkout.
+    """
+    try:
+        from importlib.resources import as_file, files
+
+        res = files("matrix_mat").joinpath("models.lock.json")
+        if res.is_file():
+            with as_file(res) as p:
+                return Path(p)
+    except (ModuleNotFoundError, FileNotFoundError, TypeError):  # pragma: no cover - exotic loaders
+        pass
+    return Path(__file__).resolve().parents[3] / "models.lock.json"
+
+
 def get_model_weights_info(
     model_name: str = "cpsam_v2",
     lock_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Retrieve pinned metadata from models.lock.json."""
     if lock_path is None:
-        # Search repo root or relative to module
-        repo_root = Path(__file__).resolve().parent.parent.parent.parent
-        lock_path = repo_root / "models.lock.json"
-        if not lock_path.exists():
-            lock_path = Path("models.lock.json")
+        lock_path = default_models_lock_path()
+    lock_path = Path(lock_path)
 
     if not lock_path.exists():
         raise FileNotFoundError(f"models.lock.json not found at {lock_path}")
@@ -56,7 +71,8 @@ def verify_model_weights(
     """
     Verify model weights existence and SHA-256 checksum.
     Raises FileNotFoundError with actionable download hint if missing.
-    Raises ValueError on checksum mismatch.
+    Raises ValueError on checksum mismatch, or when ``expected_sha256`` is not given and the
+    model is missing from models.lock.json / its entry has no sha256 (fail closed).
     Returns the verified SHA-256 hash.
     """
     p = Path(model_path)
@@ -69,11 +85,19 @@ def verify_model_weights(
     actual_sha = compute_sha256(p)
 
     if expected_sha256 is None:
+        # Fail closed: weights that are not pinned (or pinned without a hash) are never trusted.
+        lock = default_models_lock_path()
         try:
-            info = get_model_weights_info(model_name)
-            expected_sha256 = info.get("sha256")
-        except Exception:
-            expected_sha256 = None
+            info = get_model_weights_info(model_name, lock_path=lock)
+        except (KeyError, FileNotFoundError) as e:
+            raise ValueError(
+                f"Model '{model_name}' is not pinned in {lock} ({e}); refusing unverified weights '{p}'."
+            ) from None
+        expected_sha256 = info.get("sha256")
+        if not expected_sha256:
+            raise ValueError(
+                f"models.lock.json entry for '{model_name}' has no sha256; refusing unverified weights '{p}'."
+            )
 
     if expected_sha256:
         if actual_sha.lower() != expected_sha256.lower():

@@ -11,6 +11,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 import tifffile
+from skimage import segmentation
 
 logger = logging.getLogger("matrix_mat.if_density.visualize")
 
@@ -38,14 +39,11 @@ def create_dual_channel_overlay(
     r = act_u8
     bgr = cv2.merge([b, g, r])
 
-    # Draw contours in high-visibility bright green (0, 255, 0)
-    n_objs = int(masks.max())
-    if n_objs > 0:
-        # Find boundaries
-        for lbl in range(1, n_objs + 1):
-            m = (masks == lbl).astype(np.uint8)
-            contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(bgr, contours, -1, (0, 255, 128), 1, cv2.LINE_AA)
+    # Object outlines in high-visibility green, all labels at once (inner boundary pixels of each label,
+    # so touching nuclei keep separate outlines).
+    if int(masks.max()) > 0:
+        boundaries = segmentation.find_boundaries(masks, mode="inner")
+        bgr[boundaries] = (0, 255, 128)
 
     # Title banner
     if title:
@@ -78,7 +76,8 @@ def save_mask_and_overlay(
     title = f"{run_name} | {image_id} | {masks.max()} nuclei"
     overlay = create_dual_channel_overlay(nuclear_img, actin_img, masks, title=title)
     overlay_path = masks_dir / f"{image_id}_overlay.png"
-    cv2.imwrite(str(overlay_path), overlay)
+    if not cv2.imwrite(str(overlay_path), overlay):
+        raise IOError(f"cv2.imwrite failed to write overlay {overlay_path}")
 
     return mask_tif_path, overlay_path
 
@@ -100,4 +99,5 @@ def save_qc_overlay_panels(
                 banner_text = f"QC FLAGS: {flags}"
                 cv2.putText(img, banner_text, (15, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
                 out_path = qc_dir / f"QC_FLAGGED_{img_id}.png"
-                cv2.imwrite(str(out_path), img)
+                if not cv2.imwrite(str(out_path), img):
+                    raise IOError(f"cv2.imwrite failed to write QC panel {out_path}")

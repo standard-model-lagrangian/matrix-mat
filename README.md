@@ -60,7 +60,7 @@ pytest -m "not slow and not dl and not realdata"   # ~1 min, no GPU or data need
 
 > **Using `pip` instead of `uv`:** run `python -m venv .venv && source .venv/bin/activate`, then `pip install -r requirements-lock.txt` (pip switches to hash-checking automatically) and `pip install -e ".[dl,dev]" --no-deps`.
 >
-> **No GPU:** everything runs on CPU, just more slowly. The device is detected automatically, or set it with `--device cpu|mps|cuda`.
+> **No GPU:** everything runs on CPU, just more slowly. The device is detected automatically, or set it with `--device` (`auto`, `cpu`, `mps`, `cuda`).
 >
 > **Optional `cpdino` backend:** this needs `pip install git+https://github.com/facebookresearch/dinov3`. The default `cpsam` backend does not.
 
@@ -87,7 +87,7 @@ data/
 └── if/         SKOV3 Spheroid D7 Mor_Mat-Gel1-2_ch00.tif  (+ matching _ch02.tif), …
 ```
 
-Filenames encode condition, gel (the replicate) and field of view. A name that doesn't match the pattern raises an error rather than being guessed. Folders named differently can be symlinked into this layout or passed with `--t0-dir/--t7-dir` (brightfield) or `--data-dir` (IF). See [docs/DATA.md](docs/DATA.md) for the full conventions and calibration rules.
+Filenames encode condition, gel (the replicate) and field of view. A name that doesn't match the pattern, a file-manager copy such as `… (1).tif`, or an ambiguous condition raises a `ValueError` rather than being guessed. Folders named differently can be symlinked into this layout or passed with `--t0-dir/--t7-dir` (brightfield) or `--data-dir` (IF). See [docs/DATA.md](docs/DATA.md) for the full conventions and calibration rules.
 
 ---
 
@@ -100,6 +100,7 @@ export MATRIX_MAT_DATA_ROOT=/path/to/data
 
 matrix-mat bf preflight                      # checks pairing, calibration, control group
 matrix-mat bf run --sample 12                # quick look at 12 stratified images
+matrix-mat bf run --dry-run                  # list the images a run would process, then stop
 matrix-mat bf run                            # full dataset → ./output
 matrix-mat bf plots                          # re-draw figures from existing CSVs
 ```
@@ -128,16 +129,25 @@ Each run is written to `./output/runs/<run>/`, containing `features/per_image.cs
 
 | Command | Purpose | Useful options |
 | :--- | :--- | :--- |
-| `matrix-mat bf preflight` | Validate inputs before a run | `-c CONFIG`, `--t0-dir`, `--t7-dir`, `--pixel-size` |
-| `matrix-mat bf run` | Segment, measure, pair, test, report | `--sample N`, `--condition NAME`, `--backend {cpsam,cpdino,classical}`, `--device`, `--no-cache`, `-o DIR` |
-| `matrix-mat bf plots` | Figures from existing CSVs | `-o DIR` |
-| `matrix-mat if preflight` | Validate IF channel pairs and weights | `--data-dir`, `--model-path`, `--allow-unpaired` |
-| `matrix-mat if sweep` | Run every combo in a sweep config | `-c CONFIG`, `--runs-dir`, `--data-dir`, `--sample N`, `--overwrite` |
-| `matrix-mat if compare` | Cross-run comparison | `--runs DIR` |
-| `matrix-mat if compare-prepost` | Ablation report (+ `--biological` figures) | `--runs DIR`, `--biological` |
-| `matrix-mat if compare-biological` | Figures for one run | `--run-dir DIR` |
+| `matrix-mat bf preflight` | Validate inputs before a run | `-c CONFIG`, `--t0-dir`, `--t7-dir`, `--input-dir`, `--pixel-size` |
+| `matrix-mat bf run` | Segment, measure, pair, test, report | `--sample N`, `--condition NAME`, `--backend {cpsam,cpdino,classical}`, `--device {auto,cpu,cuda,mps}`, `--no-cache`, `--dry-run`, `--input-dir`, `-o DIR` |
+| `matrix-mat bf plots` | Figures from existing CSVs | `-o DIR` (default: `output_dir` from the config) |
+| `matrix-mat if preflight` | Validate IF channel pairs and weights | `--data-dir`, `--model-path`, `--allow-unpaired`, `-o DIR` |
+| `matrix-mat if sweep` | Run every combo in a sweep config | `-c CONFIG`, `-o/--runs-dir`, `--data-dir`, `--sample N`, `--overwrite`, `--strict-pairing`, `--dry-run` |
+| `matrix-mat if compare` | Cross-run comparison | `--runs DIR`, `--run-names RUN [RUN ...]`, `--scope {subset,full}`, `-o DIR` |
+| `matrix-mat if compare-prepost` | Ablation report (+ `--biological` figures) | `--runs DIR`, `--scope {subset,full}`, `--biological`, `--run-pattern GLOB` |
+| `matrix-mat if compare-biological` | Figures for one run | `--run-dir DIR` or `--runs DIR --run-pattern GLOB` |
 
-Every command exits non-zero on failure, including missing weights, invalid configs and unknown backends. Run `matrix-mat <bf|if> <command> --help` for the full option list.
+Conventions shared by every command:
+
+- `-o/--output-dir` sets the output directory (older spellings such as `--out`, `--output`, `--runs-dir` still work).
+- `-v/--verbose` and `-q/--quiet` work before or after the subcommand; `matrix-mat --version` prints the version.
+- Options must be spelled in full (no abbreviations). `--pixel-size` must be greater than 0.
+- Without `-c`, the shipped `configs/*.yaml` next to the package is used (a WARNING is logged and built-in defaults apply if it is missing). A `-c` path that does not exist is an error.
+- `--input-dir` finds the Day 0 / Day 7 sub-folders by name (`Day0`, `Spheroid Day0 <date>`, …); choose them explicitly with `--t0-subdir` / `--t7-subdir`.
+- `if compare-prepost --biological` and `if compare-biological` use the single run matching `--run-pattern` (default `*PP11*`) and stop with an error if several runs match.
+
+Exit codes: `0` success, `1` the run or validation failed (missing weights, invalid configs, unknown backends, failed figures, missing runs directory), `2` usage error (bad option, missing `-c` file). The legacy entry points (`spheroid-brightfield`, `spheroid-if`, `python -m spheroid_if_sweep`, `python run_pipeline.py`) pass exit codes through as well. Run `matrix-mat <bf|if> <command> --help` for the full option list.
 
 ---
 

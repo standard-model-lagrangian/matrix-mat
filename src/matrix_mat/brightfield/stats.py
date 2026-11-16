@@ -81,7 +81,12 @@ CONDITION_SUMMARY_COLUMNS: List[str] = [
     "permutation_p_vs_control",
     "significance",
     "backend_counts",
+    "low_gel_n",
 ]
+
+# Below this many gels (clusters) a hierarchical bootstrap / cluster permutation cannot resample
+# the inferential unit meaningfully; the CI is then effectively a within-gel interval.
+MIN_GELS_FOR_HIERARCHICAL = 3
 
 
 def bootstrap_ci_median(
@@ -206,6 +211,7 @@ class PopulationStatsCalculator:
     """
 
     def __init__(self, config: Optional[Union[StatsConfig, PipelineConfig]] = None):
+        self.random_seed = int(config.random_seed) if isinstance(config, PipelineConfig) else 42
         if isinstance(config, PipelineConfig):
             self.config = config.stats
         elif isinstance(config, StatsConfig):
@@ -217,11 +223,14 @@ class PopulationStatsCalculator:
         self,
         pairs: Union[List[SpheroidPairRecord], pd.DataFrame],
         all_objects: Optional[Union[List[SpheroidObjectRecord], pd.DataFrame]] = None,
-        random_seed: int = 42,
+        random_seed: Optional[int] = None,
     ) -> pd.DataFrame:
         """
         Computes full per-condition summary statistics matching CONDITION_SUMMARY_COLUMNS.
+        ``random_seed=None`` uses the pipeline's ``random_seed`` (or 42 without a pipeline config).
         """
+        if random_seed is None:
+            random_seed = self.random_seed
         if isinstance(pairs, list):
             if len(pairs) == 0:
                 return pd.DataFrame(columns=CONDITION_SUMMARY_COLUMNS)
@@ -341,6 +350,7 @@ class PopulationStatsCalculator:
                 if "log2_fold_change" not in boot_df.columns:
                     with np.errstate(divide="ignore", invalid="ignore"):
                         boot_df["log2_fold_change"] = np.log2(boot_df["fold_change_volume"].where(boot_df["fold_change_volume"] > 0))
+                boot_df = boot_df[np.isfinite(pd.to_numeric(boot_df["log2_fold_change"], errors="coerce"))]
                 log2_ci_low, log2_ci_high = hierarchical_bootstrap_ci(
                     boot_df,
                     value_col="log2_fold_change",
@@ -353,6 +363,8 @@ class PopulationStatsCalculator:
                 ci_low = float(2.0 ** log2_ci_low) if not np.isnan(log2_ci_low) else np.nan
                 ci_high = float(2.0 ** log2_ci_high) if not np.isnan(log2_ci_high) else np.nan
                 ci_method = "hierarchical_bootstrap_log2"
+                if n_gels < MIN_GELS_FOR_HIERARCHICAL:
+                    ci_method += f"_low_gel_n{n_gels}"
             else:
                 v0_med, v0_iqr = np.nan, np.nan
                 v7_med, v7_iqr = np.nan, np.nan
@@ -378,6 +390,8 @@ class PopulationStatsCalculator:
                     test_pairs = valid_cond_pairs[valid_cond_pairs["combined_qc_flag"].isin(["PASS", "REVIEW"])]
 
                 perm_val_col = "log2_fold_change" if "log2_fold_change" in test_pairs.columns else "fold_change_volume"
+                # Undefined values (e.g. vanished spheroids, log2 of 0) must not enter the test.
+                test_pairs = test_pairs[np.isfinite(pd.to_numeric(test_pairs[perm_val_col], errors="coerce"))]
                 p_val, min_p = cluster_permutation_test(
                     test_pairs,
                     value_col=perm_val_col,
@@ -427,7 +441,13 @@ class PopulationStatsCalculator:
                 "permutation_p_vs_control": p_val,
                 "significance": signif,
                 "backend_counts": backend_counts_str,
+                "low_gel_n": bool(n_gels < MIN_GELS_FOR_HIERARCHICAL),
             }
+            if n_stat > 0 and n_gels < MIN_GELS_FOR_HIERARCHICAL:
+                logger.warning(
+                    f"Condition '{cond}': only {n_gels} gel(s) in the analysis population; the "
+                    "'hierarchical' CI/permutation cannot resample gels and is flagged low_gel_n."
+                )
             rows.append(row)
 
         # Multiplicity adjustment across conditions
@@ -473,10 +493,11 @@ def compute_condition_statistics(
     pairs: Union[List[SpheroidPairRecord], pd.DataFrame],
     all_objects: Optional[Union[List[SpheroidObjectRecord], pd.DataFrame]] = None,
     config: Optional[Union[StatsConfig, PipelineConfig]] = None,
-    random_seed: int = 42,
+    random_seed: Optional[int] = None,
 ) -> pd.DataFrame:
     """
     High-level functional interface to calculate per-condition summary statistics.
+    ``random_seed=None`` falls back to ``config.random_seed`` (PipelineConfig) or 42.
     """
     calc = PopulationStatsCalculator(config=config)
     return calc.compute_condition_statistics(pairs, all_objects=all_objects, random_seed=random_seed)
